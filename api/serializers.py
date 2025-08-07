@@ -1,9 +1,10 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
+from django.db import models
 
 
-class UserSerializer(serializers.ModelSerializer):
+class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
 
     class Meta:
@@ -12,14 +13,7 @@ class UserSerializer(serializers.ModelSerializer):
                   'last_name', 'email', 'password')
 
     def create(self, validated_data):
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            first_name=validated_data['first_name'],
-            last_name=validated_data['last_name'],
-            email=validated_data['email'],
-            password=validated_data['password']
-        )
-        return user
+        return User.objects.create_user(**validated_data)
 
 
 class LoginSerializer(serializers.Serializer):
@@ -29,10 +23,30 @@ class LoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         user = authenticate(
             request=self.context.get('request'),
-            username=attrs.get('username'),
-            password=attrs.get('password'),
+            username=attrs['username'],
+            password=attrs['password'],
         )
         if not user:
-            raise serializers.ValidationError('Invalid username or password.')
+            raise serializers.ValidationError("Invalid username or password.")
         attrs['user'] = user
         return attrs
+
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = User
+        fields = ('username', 'first_name', 'last_name', 'email', 'password')
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if password:
+            instance.set_password(password)
+
+        instance.save()
+        return instance
