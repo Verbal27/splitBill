@@ -12,3 +12,4 @@ dependencies = [
     "pylint-django>=2.6.1",
     "requests>=2.32.4",
 ]
+
