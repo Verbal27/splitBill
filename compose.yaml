@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    container_name: my_db
+    restart: always
+    environment:
+      POSTGRES_DB: splitBill
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Vaniok_12
+      PGSERVICEFILE: /home/appuser/.pg_service.conf
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # ports:
+    #   - "5432:5432"
+
+  web:
+    build: .
+    container_name: splitBill
+    command: python3 manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+
+      # DATABASE_NAME: splitBill
+      # DATABASE_USER: postgres
+      # DATABASE_PASSWORD: Vaniok_12
+      # DATABASE_HOST: my_db
+      PGSERVICEFILE: /home/appuser/.pg_service.conf
+
+volumes:
+  postgres_data:
