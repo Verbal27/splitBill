@@ -10,4 +10,7 @@ wheels/
 .venv
 
 # db conf files
-.my_pgpass
+.pgpass
+.pg_service.conf
+compose.yaml
+Dockerfile
