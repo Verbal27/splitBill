@@ -13,4 +13,5 @@ wheels/
 .pgpass
 .pg_service.conf
 compose.yaml
-Dockerfile
+Dockerfilesendgrid.env
+.env

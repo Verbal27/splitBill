@@ -7,9 +7,12 @@ requires-python = ">=3.13"
 dependencies = [
     "django>=5.2.4",
     "django-extensions>=4.1",
+    "django-rest-passwordreset>=1.5.0",
     "djangorestframework>=3.16.0",
+    "pip-system-certs>=5.2",
     "psycopg[binary]>=3.2.9",
     "pylint-django>=2.6.1",
+    "python-decouple>=3.8",
     "requests>=2.32.4",
 ]
 
