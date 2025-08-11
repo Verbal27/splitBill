@@ -1,5 +1,5 @@
 """
-URL configuration for splitbill project.
+URL configuration for split_bill project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.2/topics/http/urls/
@@ -14,12 +14,28 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
 from django.urls import path, include
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    # path("SBApp/", include('SBApp.urls')),
-    path('api/', include('api.urls'))
-    # path('accounts/', include("django.contrib.auth.urls"))
+    path("admin/", admin.site.urls),
+    path("apps/sb_app/", include("apps.sb_app.urls")),
+    path("apps/api/", include("apps.api.urls")),
+    path("apps/api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path(
+        "apps/api/schema/swagger-ui/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
+    path(
+        "apps/api/schema/redoc/",
+        SpectacularRedocView.as_view(url_name="schema"),
+        name="redoc",
+    ),
 ]
