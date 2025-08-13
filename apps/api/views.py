@@ -1,15 +1,12 @@
 from .serializers import (
-    LoginSerializer,
     RegisterSerializer,
     UserUpdateSerializer,
     ResetPasswordSerializer,
     SetNewPasswordSerializer,
+    # SplitBillSerializer,
 )
 from rest_framework import generics, viewsets, permissions, status
-from rest_framework.authentication import TokenAuthentication
-from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
-from rest_framework.views import APIView
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
@@ -21,27 +18,25 @@ class UserRegister(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
 
 
-class UserLogin(generics.GenericAPIView):
-    serializer_class = LoginSerializer
-    authentication_classes = [TokenAuthentication]
+# class UserLogin(generics.GenericAPIView):
+#     serializer_class = LoginSerializer
 
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(
-            data=request.data, context={"request": request}
-        )
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data["user"]
-        token, _ = Token.objects.get_or_create(user=user)
-        return Response(
-            {
-                "message": "You're in!",
-                "token": token.key,
-                "user_id": user.pk,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "email": user.email,
-            }
-        )
+#     def post(self, request, *args, **kwargs):
+#         serializer = self.get_serializer(
+#             data=request.data, context={"request": request}
+#         )
+#         serializer.is_valid(raise_exception=True)
+#         user = serializer.validated_data["user"]
+
+#         return Response(
+#             {
+#                 "message": "You're in!",
+#                 "user_id": user.pk,
+#                 "first_name": user.first_name,
+#                 "last_name": user.last_name,
+#                 "email": user.email,
+#             }
+#         )
 
 
 class UpdateUserView(viewsets.ModelViewSet):
@@ -123,9 +118,6 @@ class PasswordResetCompleteView(generics.GenericAPIView):
         )
 
 
-class UserLogout(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        request.auth.delete()
-        return Response(status=204)
+# class StartSplitBill(generics.CreateAPIView):
+#     serializer_class = SplitBillSerializer
+#     permission_classes = [permissions.IsAuthenticated]
