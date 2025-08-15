@@ -5,6 +5,13 @@ from .views import (
     PasswordResetCompleteView,
     PasswordResetConfirmView,
     UpdateUserView,
+    SplitBillCreateView,
+    SplitBillDetailView,
+    CommentCreateView,
+    AddMemberView,
+    RemoveMemberView,
+    ExpenseListCreateView,
+    ExpenseDetailView,
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -19,8 +26,8 @@ router.register(r"users", UpdateUserView)
 urlpatterns = [
     path("", include(router.urls)),
     path("register/", UserRegister.as_view(), name="register"),
-    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("token/", TokenObtainPairView.as_view(), name="token-obtain-pair"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     path("reset-password/", ResetPassword.as_view(), name="password-reset"),
     path(
         "reset-password-confirm/<uidb64>/<token>/",
@@ -32,4 +39,17 @@ urlpatterns = [
         PasswordResetCompleteView.as_view(),
         name="password-reset-complete",
     ),
+    path("split-bill/", SplitBillCreateView.as_view(), name="splitbill-list"),
+    path(
+        "split-bill/<int:pk>/", SplitBillDetailView.as_view(), name="splitbill-detail"
+    ),
+    path("split-bill/<int:pk>/add-member/", AddMemberView.as_view(), name="add-member"),
+    path(
+        "split-bill/<int:pk>/remove-member/",
+        RemoveMemberView.as_view(),
+        name="remove-member",
+    ),
+    path("expenses/", ExpenseListCreateView.as_view(), name="expense-list"),
+    path("expenses/<int:pk>/", ExpenseDetailView.as_view(), name="expense-detail"),
+    path("comments/", CommentCreateView.as_view(), name="comment-create"),
 ]

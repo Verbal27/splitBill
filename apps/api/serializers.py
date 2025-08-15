@@ -1,10 +1,9 @@
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes
-
-# from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from rest_framework import serializers
+from .models import SplitBill, Expense, Comment
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -16,22 +15,6 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
-
-
-# class LoginSerializer(serializers.Serializer):
-#     username = serializers.CharField()
-#     password = serializers.CharField(write_only=True)
-
-#     def validate(self, attrs):
-#         user = authenticate(
-#             request=self.context.get("request"),
-#             username=attrs["username"],
-#             password=attrs["password"],
-#         )
-#         if not user:
-#             raise serializers.ValidationError("Invalid username or password.")
-#         attrs["user"] = user
-#         return attrs
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
@@ -107,4 +90,109 @@ class SetNewPasswordSerializer(serializers.Serializer):
         return user
 
 
-# class SplitBillSerializer(serializers.Serializer): ...
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "email"]
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = UserSerializer(read_only=True)  # show details in response
+    text = serializers.CharField()
+
+    class Meta:
+        model = Comment
+        fields = ["id", "author", "text", "date_created", "split_bill"]
+        read_only_fields = ["id", "author", "date_created"]
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        split_bill = validated_data["split_bill"]
+        return Comment.objects.create(
+            author=request.user, split_bill=split_bill, text=validated_data["text"]
+        )
+
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    assigned_to = UserSerializer(read_only=True)
+    assigned_to_username = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = Expense
+        fields = [
+            "id",
+            "title",
+            "amount",
+            "assigned_to",
+            "assigned_to_username",
+            "date_created",
+            "split_bill",
+        ]
+
+    def create(self, validated_data):
+        username = validated_data.pop("assigned_to_username")
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            raise serializers.ValidationError(
+                {"assigned_to_username": "User not found."}
+            )
+        validated_data["assigned_to"] = user
+        return super().create(validated_data)
+
+
+class SplitBillSerializer(serializers.ModelSerializer):
+    owner = UserSerializer(read_only=True)
+    members = UserSerializer(many=True, read_only=True)
+    member_usernames = serializers.ListField(
+        child=serializers.CharField(), write_only=True, required=False
+    )
+    expenses = ExpenseSerializer(many=True, read_only=True)
+    comments = CommentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SplitBill
+        fields = [
+            "id",
+            "title",
+            "date_created",
+            "currency",
+            "owner",
+            "members",
+            "member_usernames",
+            "expenses",
+            "comments",
+        ]
+
+    def create(self, validated_data):
+        member_usernames = validated_data.pop("member_usernames", [])
+        request = self.context.get("request")
+        split_bill = SplitBill.objects.create(owner=request.user, **validated_data)
+
+        split_bill.members.add(request.user)
+
+        for username in member_usernames:
+            try:
+                user = User.objects.get(username=username)
+                split_bill.members.add(user)
+            except User.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"member_usernames": f"User '{username}' not found."}
+                )
+        return split_bill
+
+
+class AddMemberSerializer(serializers.Serializer):
+    username = serializers.CharField()
+
+    def validate_username(self, value):
+        try:
+            return User.objects.get(username=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError(f"User '{value}' does not exist.")
+
+    def save(self, **kwargs):
+        split_bill = self.context["split_bill"]
+        user = self.validated_data["username"]
+        split_bill.members.add(user)
+        return split_bill

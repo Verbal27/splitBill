@@ -3,40 +3,25 @@ from .serializers import (
     UserUpdateSerializer,
     ResetPasswordSerializer,
     SetNewPasswordSerializer,
-    # SplitBillSerializer,
+    SplitBillSerializer,
+    ExpenseSerializer,
+    CommentSerializer,
+    AddMemberSerializer,
 )
 from rest_framework import generics, viewsets, permissions, status
+from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
 from django.urls import reverse
+from .models import SplitBill, Expense, Comment
+from django.core.exceptions import PermissionDenied
 
 
 class UserRegister(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
-
-
-# class UserLogin(generics.GenericAPIView):
-#     serializer_class = LoginSerializer
-
-#     def post(self, request, *args, **kwargs):
-#         serializer = self.get_serializer(
-#             data=request.data, context={"request": request}
-#         )
-#         serializer.is_valid(raise_exception=True)
-#         user = serializer.validated_data["user"]
-
-#         return Response(
-#             {
-#                 "message": "You're in!",
-#                 "user_id": user.pk,
-#                 "first_name": user.first_name,
-#                 "last_name": user.last_name,
-#                 "email": user.email,
-#             }
-#         )
 
 
 class UpdateUserView(viewsets.ModelViewSet):
@@ -118,6 +103,88 @@ class PasswordResetCompleteView(generics.GenericAPIView):
         )
 
 
-# class StartSplitBill(generics.CreateAPIView):
-#     serializer_class = SplitBillSerializer
-#     permission_classes = [permissions.IsAuthenticated]
+class SplitBillCreateView(generics.ListCreateAPIView):
+    serializer_class = SplitBillSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return SplitBill.objects.filter(members=user).prefetch_related(
+            "members", "expenses", "comments"
+        )
+
+
+class SplitBillDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = SplitBill.objects.all().prefetch_related(
+        "members", "expenses", "comments"
+    )
+    serializer_class = SplitBillSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+
+class ExpenseListCreateView(generics.ListCreateAPIView):
+    queryset = Expense.objects.all().select_related("split_bill", "assigned_to")
+    serializer_class = ExpenseSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+
+class ExpenseDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Expense.objects.all().select_related("split_bill", "assigned_to")
+    serializer_class = ExpenseSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+
+class AddMemberView(generics.UpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, split_bill_id):
+        split_bill = get_object_or_404(SplitBill, id=split_bill_id)
+
+        # Only owner can add
+        if request.user != split_bill.owner:
+            raise PermissionDenied("Only the splitbill owner can add members.")
+
+        serializer = AddMemberSerializer(
+            data=request.data, context={"split_bill": split_bill}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"detail": "Member added successfully"})
+
+
+class RemoveMemberView(generics.UpdateAPIView):
+    queryset = SplitBill.objects.all()
+    serializer_class = SplitBillSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def update(self, request, *args, **kwargs):
+        split_bill = self.get_object()
+        if split_bill.owner != request.user:
+            return Response(
+                {"detail": "Only the owner can remove members."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        user_id = request.data.get("user_id")
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+        split_bill.members.remove(user)
+        return Response(SplitBillSerializer(split_bill).data)
+
+
+class CommentCreateView(generics.CreateAPIView):
+    queryset = Comment.objects.all()
+    serializer_class = CommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        split_bill = serializer.validated_data["split_bill"]
+        if (
+            self.request.user != split_bill.owner
+            and self.request.user not in split_bill.members.all()
+        ):
+            raise PermissionDenied("You must be a member of the splitbill to comment.")
+        serializer.save(author=self.request.user)
