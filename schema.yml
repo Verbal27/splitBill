@@ -845,12 +845,6 @@ components:
             only.
           pattern: ^[\w.@+-]+$
           maxLength: 150
-        first_name:
-          type: string
-          maxLength: 150
-        last_name:
-          type: string
-          maxLength: 150
         email:
           type: string
           format: email
@@ -867,12 +861,6 @@ components:
           description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
             only.
           pattern: ^[\w.@+-]+$
-          maxLength: 150
-        first_name:
-          type: string
-          maxLength: 150
-        last_name:
-          type: string
           maxLength: 150
         email:
           type: string
@@ -1018,12 +1006,6 @@ components:
             only.
           pattern: ^[\w.@+-]+$
           maxLength: 150
-        first_name:
-          type: string
-          maxLength: 150
-        last_name:
-          type: string
-          maxLength: 150
         email:
           type: string
           format: email
@@ -1039,3 +1021,6 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+servers:
+- url: http://localhost:8000
+  description: Local server

@@ -1,4 +1,3 @@
-# models.py
 from django.db import models
 from django.contrib.auth.models import User
 
@@ -13,6 +12,7 @@ class SplitBill(models.Model):
         User, related_name="member_split_bills", blank=True
     )
     currency = models.CharField(max_length=3)  # e.g., "USD", "EUR", "MDL"
+    active = models.BooleanField(default=True)
 
     def __str__(self):
         return self.title
@@ -24,8 +24,8 @@ class Expense(models.Model):
     )
     title = models.CharField(max_length=255)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    assigned_to = models.ForeignKey(
-        User, related_name="assigned_expenses", on_delete=models.CASCADE
+    assigned_to = models.ManyToManyField(
+        User, through="ExpenseAssignment", related_name="assigned_expenses"
     )
     date_created = models.DateTimeField(auto_now_add=True)
 
@@ -43,3 +43,16 @@ class Comment(models.Model):
 
     def __str__(self):
         return f"Comment by {self.author.username} on {self.split_bill.title}"
+
+
+class ExpenseAssignemnt(models.Model):
+    expense = models.ForeignKey(
+        Expense, related_name="expense_assignment", on_delete=models.CASCADE
+    )
+    user = models.ForeignKey(
+        User, related_name="expense_assignment", on_delete=models.CASCADE
+    )
+    amount = models.DecimalField(default=0.0, max_digits=10, decimal_places=2)
+
+    def __str__(self) -> str:
+        return super().__str__()

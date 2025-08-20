@@ -11,7 +11,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("username", "first_name", "last_name", "email", "password")
+        fields = ("username", "email", "password")
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
@@ -22,7 +22,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("username", "first_name", "last_name", "email", "password")
+        fields = ("username", "email", "password")
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
@@ -162,6 +162,7 @@ class SplitBillSerializer(serializers.ModelSerializer):
             "member_usernames",
             "expenses",
             "comments",
+            "active",
         ]
 
     def create(self, validated_data):
@@ -196,3 +197,13 @@ class AddMemberSerializer(serializers.Serializer):
         user = self.validated_data["username"]
         split_bill.members.add(user)
         return split_bill
+
+
+class RemoveMemberSerializer(serializers.Serializer):
+    username = serializers.CharField()
+
+    def validate_username(self, value):
+        try:
+            return User.objects.get(username=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError(f"User '{value}' does not exist.")
