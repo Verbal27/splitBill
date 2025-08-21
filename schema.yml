@@ -4,6 +4,28 @@ info:
   version: 0.1.0
   description: App to split expenses
 paths:
+  /apps/api/activate/{uidb64}/{token}/:
+    get:
+      operationId: activate_retrieve
+      parameters:
+      - in: path
+        name: token
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: uidb64
+        schema:
+          type: string
+        required: true
+      tags:
+      - activate
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
   /apps/api/comments/:
     post:
       operationId: comments_create
@@ -418,63 +440,17 @@ paths:
         required: true
       tags:
       - split-bill
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          description: No response body
-    put:
-      operationId: split_bill_add_member_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - split-bill
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          description: No response body
-    patch:
-      operationId: split_bill_add_member_partial_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - split-bill
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          description: No response body
-  /apps/api/split-bill/{id}/remove-member/:
-    put:
-      operationId: split_bill_remove_member_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - split-bill
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SplitBill'
+              $ref: '#/components/schemas/AddMember'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/SplitBill'
+              $ref: '#/components/schemas/AddMember'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/SplitBill'
+              $ref: '#/components/schemas/AddMember'
         required: true
       security:
       - jwtAuth: []
@@ -483,10 +459,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SplitBill'
+                $ref: '#/components/schemas/AddMember'
           description: ''
-    patch:
-      operationId: split_bill_remove_member_partial_update
+  /apps/api/split-bill/{id}/remove-member/:
+    post:
+      operationId: split_bill_remove_member_create
       parameters:
       - in: path
         name: id
@@ -499,13 +476,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchedSplitBill'
+              $ref: '#/components/schemas/RemoveMember'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/PatchedSplitBill'
+              $ref: '#/components/schemas/RemoveMember'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/PatchedSplitBill'
+              $ref: '#/components/schemas/RemoveMember'
+        required: true
       security:
       - jwtAuth: []
       responses:
@@ -513,7 +491,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SplitBill'
+                $ref: '#/components/schemas/RemoveMember'
           description: ''
   /apps/api/token/:
     post:
@@ -712,6 +690,13 @@ paths:
           description: No response body
 components:
   schemas:
+    AddMember:
+      type: object
+      properties:
+        username:
+          type: string
+      required:
+      - username
     Comment:
       type: object
       properties:
@@ -749,13 +734,16 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-        assigned_to:
-          allOf:
-          - $ref: '#/components/schemas/User'
-          readOnly: true
-        assigned_to_username:
-          type: string
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExpenseAssignment'
           writeOnly: true
+        assigned_users:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExpenseAssignment'
+          readOnly: true
         date_created:
           type: string
           format: date-time
@@ -764,12 +752,25 @@ components:
           type: integer
       required:
       - amount
-      - assigned_to
-      - assigned_to_username
+      - assigned_users
+      - assignments
       - date_created
       - id
       - split_bill
       - title
+    ExpenseAssignment:
+      type: object
+      properties:
+        user:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        share_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+      required:
+      - user
     PatchedExpense:
       type: object
       properties:
@@ -783,13 +784,16 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-        assigned_to:
-          allOf:
-          - $ref: '#/components/schemas/User'
-          readOnly: true
-        assigned_to_username:
-          type: string
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExpenseAssignment'
           writeOnly: true
+        assigned_users:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExpenseAssignment'
+          readOnly: true
         date_created:
           type: string
           format: date-time
@@ -836,6 +840,8 @@ components:
           items:
             $ref: '#/components/schemas/Comment'
           readOnly: true
+        active:
+          type: boolean
     PatchedUserUpdate:
       type: object
       properties:
@@ -872,6 +878,13 @@ components:
           writeOnly: true
       required:
       - password
+      - username
+    RemoveMember:
+      type: object
+      properties:
+        username:
+          type: string
+      required:
       - username
     ResetPassword:
       type: object
@@ -936,6 +949,8 @@ components:
           items:
             $ref: '#/components/schemas/Comment'
           readOnly: true
+        active:
+          type: boolean
       required:
       - comments
       - currency
