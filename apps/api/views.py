@@ -7,6 +7,7 @@ from .serializers import (
     ExpenseSerializer,
     CommentSerializer,
     AddMemberSerializer,
+    RemoveMemberSerializer,
 )
 from rest_framework import generics, viewsets, permissions, status
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
@@ -122,13 +123,21 @@ class SplitBillDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class ExpenseListCreateView(generics.ListCreateAPIView):
-    queryset = Expense.objects.all().select_related("split_bill", "assigned_to")
+    queryset = (
+        Expense.objects.all()
+        .select_related("split_bill")
+        .prefetch_related("assignments")
+    )
     serializer_class = ExpenseSerializer
     permission_classes = [permissions.IsAuthenticated]
 
 
 class ExpenseDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Expense.objects.all().select_related("split_bill", "assigned_to")
+    queryset = (
+        Expense.objects.all()
+        .select_related("split_bill")
+        .prefetch_related("assignments")
+    )
     serializer_class = ExpenseSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -158,6 +167,7 @@ class AddMemberView(APIView):
 
 class RemoveMemberView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = RemoveMemberSerializer
 
     def post(self, request, pk):
         split_bill = get_object_or_404(SplitBill, pk=pk)

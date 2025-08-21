@@ -2,8 +2,11 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes
 from django.contrib.auth.models import User
+from django.core.mail import send_mail
 from rest_framework import serializers
-from .models import SplitBill, Expense, Comment
+from .models import SplitBill, Expense, Comment, ExpenseAssignment
+from decimal import Decimal
+from django.conf import settings
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -113,9 +116,21 @@ class CommentSerializer(serializers.ModelSerializer):
         )
 
 
+class ExpenseAssignmentSerializer(serializers.ModelSerializer):
+    user = serializers.SlugRelatedField(
+        slug_field="username", queryset=User.objects.all()
+    )
+
+    class Meta:
+        model = ExpenseAssignment
+        fields = ["user", "share_amount"]
+
+
 class ExpenseSerializer(serializers.ModelSerializer):
-    assigned_to = UserSerializer(read_only=True)
-    assigned_to_username = serializers.CharField(write_only=True)
+    assignments = ExpenseAssignmentSerializer(many=True, write_only=True)
+    assigned_users = ExpenseAssignmentSerializer(
+        many=True, read_only=True, source="expense_assignment"
+    )
 
     class Meta:
         model = Expense
@@ -123,22 +138,31 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "amount",
-            "assigned_to",
-            "assigned_to_username",
+            "assignments",
+            "assigned_users",
             "date_created",
             "split_bill",
         ]
 
+    def validate(self, attrs):
+        assignments = self.initial_data.get("assignments", [])
+        if assignments:
+            total_share = sum(Decimal(str(a["share_amount"])) for a in assignments)
+            amount = Decimal(str(attrs.get("amount", 0)))
+            if abs(total_share - amount) > Decimal("0.01"):
+                raise serializers.ValidationError(
+                    {
+                        "assignments": f"Sum of shares ({total_share}) must equal the total amount ({amount})."
+                    }
+                )
+        return attrs
+
     def create(self, validated_data):
-        username = validated_data.pop("assigned_to_username")
-        try:
-            user = User.objects.get(username=username)
-        except User.DoesNotExist:
-            raise serializers.ValidationError(
-                {"assigned_to_username": "User not found."}
-            )
-        validated_data["assigned_to"] = user
-        return super().create(validated_data)
+        assignments_data = validated_data.pop("assignments", [])
+        expense = Expense.objects.create(**validated_data)
+        for assignment in assignments_data:
+            ExpenseAssignment.objects.create(expense=expense, **assignment)
+        return expense
 
 
 class SplitBillSerializer(serializers.ModelSerializer):
@@ -176,10 +200,16 @@ class SplitBillSerializer(serializers.ModelSerializer):
             try:
                 user = User.objects.get(username=username)
                 split_bill.members.add(user)
+                subject = "Seems you owe someone money :D"
+                message = "Someone added you to a split bill session to inform about expenses you have in common. http://localhost:8000/"
+                from_email = settings.EMAIL_HOST_USER
+                recipient_list = [user.email]
+                send_mail(subject, message, from_email, recipient_list)
             except User.DoesNotExist:
                 raise serializers.ValidationError(
                     {"member_usernames": f"User '{username}' not found."}
                 )
+
         return split_bill
 
 
@@ -196,6 +226,11 @@ class AddMemberSerializer(serializers.Serializer):
         split_bill = self.context["split_bill"]
         user = self.validated_data["username"]
         split_bill.members.add(user)
+        subject = "Seems you owe someone money :D"
+        message = "Someone added you to a split bill session to inform about expenses you have in common. http://localhost:8000/"
+        from_email = settings.EMAIL_HOST_USER
+        recipient_list = [user.email]
+        send_mail(subject, message, from_email, recipient_list)
         return split_bill
 
 

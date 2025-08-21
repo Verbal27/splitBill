@@ -24,13 +24,24 @@ class Expense(models.Model):
     )
     title = models.CharField(max_length=255)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    assigned_to = models.ManyToManyField(
+    assignments = models.ManyToManyField(
         User, through="ExpenseAssignment", related_name="assigned_expenses"
     )
     date_created = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.title} - {self.amount} {self.split_bill.currency}"
+
+
+class ExpenseAssignment(models.Model):
+    expense = models.ForeignKey(
+        Expense, related_name="expense_assignment", on_delete=models.CASCADE
+    )
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    share_amount = models.DecimalField(default=0.0, max_digits=10, decimal_places=2)
+
+    def __str__(self) -> str:
+        return f"{self.user.username} owes {self.share_amount} for {self.expense.title}"
 
 
 class Comment(models.Model):
@@ -43,16 +54,3 @@ class Comment(models.Model):
 
     def __str__(self):
         return f"Comment by {self.author.username} on {self.split_bill.title}"
-
-
-class ExpenseAssignemnt(models.Model):
-    expense = models.ForeignKey(
-        Expense, related_name="expense_assignment", on_delete=models.CASCADE
-    )
-    user = models.ForeignKey(
-        User, related_name="expense_assignment", on_delete=models.CASCADE
-    )
-    amount = models.DecimalField(default=0.0, max_digits=10, decimal_places=2)
-
-    def __str__(self) -> str:
-        return super().__str__()
