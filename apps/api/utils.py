@@ -1,20 +1,19 @@
-# import os
-# from sendgrid import SendGridAPIClient
-# from sendgrid.helpers.mail import Mail
-# from django.contrib.auth.models import User
+from django.contrib.sites.shortcuts import get_current_site
+from django.urls import reverse
+from django.core.mail import send_mail
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
 
-# msg = Mail(
-#     from_email='ionganea77@gmail.com',
-#     to_emails=User.email,
-#     subject='Sending with Twilio SendGrid is Fun',
-#     html_content='<strong>and easy to do anywhere, even with Python</strong>')
-# try:
-#     sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-#     sg.set_sendgrid_data_residency("eu")
-#     # uncomment the above line if you are sending mail using a regional EU subuser
-#     response = sg.send(msg)
-#     print(response.status_code)
-#     print(response.body)
-#     print(response.headers)
-# except Exception as e:
-#     print(e.message)
+from .tokens import account_activation_token
+
+
+def send_activation_email(user, request):
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = account_activation_token.make_token(user)
+    domain = get_current_site(request).domain
+    link = reverse("activate", kwargs={"uidb64": uid, "token": token})
+    activate_url = f"http://{domain}{link}"
+
+    subject = "Activate your account"
+    message = f"Hi {user.username}, click the link to activate: {activate_url}"
+    send_mail(subject, message, None, [user.email])

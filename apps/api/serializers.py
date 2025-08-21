@@ -5,6 +5,8 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from rest_framework import serializers
 from .models import SplitBill, Expense, Comment, ExpenseAssignment
+from django.contrib.sites.shortcuts import get_current_site
+from django.urls import reverse
 from decimal import Decimal
 from django.conf import settings
 
@@ -17,7 +19,13 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ("username", "email", "password")
 
     def create(self, validated_data):
-        return User.objects.create_user(**validated_data)
+        user = User.objects.create_user(
+            username=validated_data["username"],
+            email=validated_data["email"],
+            password=validated_data["password"],
+            is_active=False,  # not active until email confirmed
+        )
+        return user
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
@@ -200,11 +208,18 @@ class SplitBillSerializer(serializers.ModelSerializer):
             try:
                 user = User.objects.get(username=username)
                 split_bill.members.add(user)
+                pk = split_bill.pk
+                domain = get_current_site(request).domain
+                link = reverse("split-bill-detail", kwargs={"pk": pk})
+                activate_url = f"http://{domain}{link}"
+
                 subject = "Seems you owe someone money :D"
-                message = "Someone added you to a split bill session to inform about expenses you have in common. http://localhost:8000/"
-                from_email = settings.EMAIL_HOST_USER
-                recipient_list = [user.email]
-                send_mail(subject, message, from_email, recipient_list)
+                message = (
+                    f"Hi {user.username},\n\n"
+                    f"Someone added you to a split bill session.\n"
+                    f"View it here: {activate_url}"
+                )
+                send_mail(subject, message, settings.EMAIL_HOST_USER, [user.email])
             except User.DoesNotExist:
                 raise serializers.ValidationError(
                     {"member_usernames": f"User '{username}' not found."}
@@ -223,14 +238,25 @@ class AddMemberSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"User '{value}' does not exist.")
 
     def save(self, **kwargs):
-        split_bill = self.context["split_bill"]
+        split_bill = self.context["split-bill"]
         user = self.validated_data["username"]
+
         split_bill.members.add(user)
+
+        request = self.context.get("request")
+        pk = split_bill.pk
+        domain = get_current_site(request).domain
+        link = reverse("split-bill-detail", kwargs={"pk": pk})
+        url = f"http://{domain}{link}"
+
         subject = "Seems you owe someone money :D"
-        message = "Someone added you to a split bill session to inform about expenses you have in common. http://localhost:8000/"
-        from_email = settings.EMAIL_HOST_USER
-        recipient_list = [user.email]
-        send_mail(subject, message, from_email, recipient_list)
+        message = (
+            f"Hi {user.username},\n\n"
+            f"Someone added you to a split bill session.\n"
+            f"View it here: {url}"
+        )
+        send_mail(subject, message, settings.EMAIL_HOST_USER, [user.email])
+
         return split_bill
 
 

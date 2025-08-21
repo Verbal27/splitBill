@@ -13,6 +13,7 @@ from rest_framework import generics, viewsets, permissions, status
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.exceptions import PermissionDenied
 from django.utils.http import urlsafe_base64_decode
+from django.utils.encoding import force_str
 from .models import SplitBill, Expense, Comment
 from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
@@ -21,11 +22,39 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.conf import settings
 from django.urls import reverse
+from .utils import send_activation_email
+from .tokens import account_activation_token
 
 
 class UserRegister(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            send_activation_email(user, request)
+            return Response(
+                {"detail": "Check your email to activate your account."},
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserActivation(APIView):
+    def get(self, request, uidb64, token):
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            user = None
+
+        if user and account_activation_token.check_token(user, token):
+            user.is_active = True
+            user.save()
+            return Response({"detail": "Account activated successfully!"})
+        return Response({"detail": "Invalid or expired activation link."}, status=400)
 
 
 class UpdateUserView(viewsets.ModelViewSet):
@@ -135,7 +164,7 @@ class ExpenseListCreateView(generics.ListCreateAPIView):
 class ExpenseDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = (
         Expense.objects.all()
-        .select_related("split_bill")
+        .select_related("split_bill", "user")
         .prefetch_related("assignments")
     )
     serializer_class = ExpenseSerializer
@@ -153,8 +182,7 @@ class AddMemberView(APIView):
             raise PermissionDenied("Only the splitbill owner can add members.")
 
         serializer = AddMemberSerializer(
-            data=request.data,
-            context={"split_bill": split_bill},
+            data=request.data, context={"request": request, "split-bill": split_bill}
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()

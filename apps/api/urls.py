@@ -12,6 +12,7 @@ from .views import (
     RemoveMemberView,
     ExpenseListCreateView,
     ExpenseDetailView,
+    UserActivation,
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -26,6 +27,7 @@ router.register(r"users", UpdateUserView)
 urlpatterns = [
     path("", include(router.urls)),
     path("register/", UserRegister.as_view(), name="register"),
+    path("activate/<uidb64>/<token>/", UserActivation.as_view(), name="activate"),
     path("token/", TokenObtainPairView.as_view(), name="token-obtain-pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     path("reset-password/", ResetPassword.as_view(), name="password-reset"),
@@ -39,9 +41,9 @@ urlpatterns = [
         PasswordResetCompleteView.as_view(),
         name="password-reset-complete",
     ),
-    path("split-bill/", SplitBillCreateView.as_view(), name="splitbill-list"),
+    path("split-bill/", SplitBillCreateView.as_view(), name="split-bill-list"),
     path(
-        "split-bill/<int:pk>/", SplitBillDetailView.as_view(), name="splitbill-detail"
+        "split-bill/<int:pk>/", SplitBillDetailView.as_view(), name="split-bill-detail"
     ),
     path("split-bill/<int:pk>/add-member/", AddMemberView.as_view(), name="add-member"),
     path(
