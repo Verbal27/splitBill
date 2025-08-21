@@ -11,19 +11,19 @@ from .serializers import (
 )
 from rest_framework import generics, viewsets, permissions, status
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from .utils import send_activation_email, IsSplitBillMember
 from django.core.exceptions import PermissionDenied
 from django.utils.http import urlsafe_base64_decode
-from django.utils.encoding import force_str
 from .models import SplitBill, Expense, Comment
 from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
-from rest_framework.views import APIView
+from .tokens import account_activation_token
 from django.contrib.auth.models import User
+from django.utils.encoding import force_str
+from rest_framework.views import APIView
 from django.core.mail import send_mail
 from django.conf import settings
 from django.urls import reverse
-from .utils import send_activation_email
-from .tokens import account_activation_token
 
 
 class UserRegister(generics.CreateAPIView):
@@ -148,7 +148,7 @@ class SplitBillDetailView(generics.RetrieveUpdateDestroyAPIView):
         "members", "expenses", "comments"
     )
     serializer_class = SplitBillSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
 
 
 class ExpenseListCreateView(generics.ListCreateAPIView):
@@ -164,11 +164,11 @@ class ExpenseListCreateView(generics.ListCreateAPIView):
 class ExpenseDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = (
         Expense.objects.all()
-        .select_related("split_bill", "user")
+        .select_related("split_bill")
         .prefetch_related("assignments")
     )
     serializer_class = ExpenseSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
 
 
 class AddMemberView(APIView):
