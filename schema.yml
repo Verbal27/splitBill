@@ -734,6 +734,8 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        split_type:
+          $ref: '#/components/schemas/SplitTypeEnum'
         assignments:
           type: array
           items:
@@ -744,17 +746,15 @@ components:
           items:
             $ref: '#/components/schemas/ExpenseAssignment'
           readOnly: true
-        date_created:
+        date:
           type: string
-          format: date-time
-          readOnly: true
+          format: date
         split_bill:
           type: integer
       required:
       - amount
       - assigned_users
-      - assignments
-      - date_created
+      - date
       - id
       - split_bill
       - title
@@ -784,6 +784,8 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        split_type:
+          $ref: '#/components/schemas/SplitTypeEnum'
         assignments:
           type: array
           items:
@@ -794,10 +796,9 @@ components:
           items:
             $ref: '#/components/schemas/ExpenseAssignment'
           readOnly: true
-        date_created:
+        date:
           type: string
-          format: date-time
-          readOnly: true
+          format: date
         split_bill:
           type: integer
     PatchedSplitBill:
@@ -960,6 +961,16 @@ components:
       - members
       - owner
       - title
+    SplitTypeEnum:
+      enum:
+      - equal
+      - percentage
+      - custom
+      type: string
+      description: |-
+        * `equal` - Equal
+        * `percentage` - Percentage
+        * `custom` - Custom
     TokenObtainPair:
       type: object
       properties:

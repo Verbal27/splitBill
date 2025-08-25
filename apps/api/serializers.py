@@ -135,10 +135,12 @@ class ExpenseAssignmentSerializer(serializers.ModelSerializer):
 
 
 class ExpenseSerializer(serializers.ModelSerializer):
-    assignments = ExpenseAssignmentSerializer(many=True, write_only=True)
-    assigned_users = ExpenseAssignmentSerializer(
-        many=True, read_only=True, source="expense_assignment"
+    assignments = serializers.DictField(
+        child=serializers.DecimalField(max_digits=10, decimal_places=2),
+        write_only=True,
+        required=False,
     )
+    assigned_users = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Expense
@@ -146,31 +148,86 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "amount",
+            "split_type",
             "assignments",
             "assigned_users",
-            "date_created",
+            "date",
             "split_bill",
         ]
 
     def validate(self, attrs):
-        assignments = self.initial_data.get("assignments", [])
-        if assignments:
-            total_share = sum(Decimal(str(a["share_amount"])) for a in assignments)
-            amount = Decimal(str(attrs.get("amount", 0)))
-            if abs(total_share - amount) > Decimal("0.01"):
-                raise serializers.ValidationError(
-                    {
-                        "assignments": f"Sum of shares ({total_share}) must equal the total amount ({amount})."
-                    }
-                )
+        split_bill = attrs.get("split_bill")
+        if split_bill and not split_bill.active:
+            raise serializers.ValidationError(
+                "You cannot add expenses to a closed split bill."
+            )
+
+        split_type = attrs.get("split_type", "equal")
+        amount = Decimal(str(attrs.get("amount", 0)))
+        assignments = self.initial_data.get("assignments", {})
+
+        if split_type == "custom":
+            if assignments:
+                total_share = sum(Decimal(str(v)) for v in assignments.values())
+                if abs(total_share - amount) > Decimal("0.01"):
+                    raise serializers.ValidationError(
+                        {
+                            "assignments": f"Sum of shares ({total_share}) must equal the total amount ({amount})."
+                        }
+                    )
+
+        elif split_type == "percentage":
+            if assignments:
+                total_percentage = sum(Decimal(str(v)) for v in assignments.values())
+                if abs(total_percentage - Decimal("100")) > Decimal("0.01"):
+                    raise serializers.ValidationError(
+                        {
+                            "assignments": f"Sum of percentages must equal 100 (got {total_percentage})."
+                        }
+                    )
+
         return attrs
 
     def create(self, validated_data):
-        assignments_data = validated_data.pop("assignments", [])
+        split_type = validated_data.get("split_type", "equal")
+        assignments_data = validated_data.pop("assignments", {})
         expense = Expense.objects.create(**validated_data)
-        for assignment in assignments_data:
-            ExpenseAssignment.objects.create(expense=expense, **assignment)
+        amount = expense.amount
+
+        if split_type == "custom":
+            for username, share_amount in assignments_data.items():
+                user = User.objects.get(username=username)
+                ExpenseAssignment.objects.create(
+                    expense=expense, user=user, share_amount=share_amount
+                )
+
+        elif split_type == "percentage":
+            for username, percentage in assignments_data.items():
+                user = User.objects.get(username=username)
+                share_amount = (amount * Decimal(str(percentage))) / Decimal("100")
+                ExpenseAssignment.objects.create(
+                    expense=expense, user=user, share_amount=share_amount
+                )
+
+        elif split_type == "equal":
+            usernames = list(assignments_data.keys())
+            if not usernames:
+                raise serializers.ValidationError(
+                    {"assignments": "Must provide at least one user for equal split."}
+                )
+            share_amount = amount / len(usernames)
+            for username in usernames:
+                user = User.objects.get(username=username)
+                ExpenseAssignment.objects.create(
+                    expense=expense, user=user, share_amount=share_amount
+                )
+
         return expense
+
+    def get_assigned_users(self, obj):
+        return {
+            a.user.username: str(a.share_amount) for a in obj.expense_assignment.all()
+        }
 
 
 class SplitBillSerializer(serializers.ModelSerializer):

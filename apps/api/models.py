@@ -19,15 +19,22 @@ class SplitBill(models.Model):
 
 
 class Expense(models.Model):
+    SPLIT_CHOICES = [
+        ("equal", "Equal"),
+        ("percentage", "Percentage"),
+        ("custom", "Custom"),
+    ]
+
     split_bill = models.ForeignKey(
         SplitBill, related_name="expenses", on_delete=models.CASCADE
     )
     title = models.CharField(max_length=255)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    split_type = models.CharField(max_length=20, choices=SPLIT_CHOICES, default="equal")
     assignments = models.ManyToManyField(
         User, through="ExpenseAssignment", related_name="assigned_expenses"
     )
-    date_created = models.DateTimeField(auto_now_add=True)
+    date = models.DateField()
 
     def __str__(self):
         return f"{self.title} - {self.amount} {self.split_bill.currency}"
