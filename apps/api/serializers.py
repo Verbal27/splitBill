@@ -186,6 +186,13 @@ class ExpenseSerializer(serializers.ModelSerializer):
                         }
                     )
 
+        elif split_type == "equal":
+            usernames = list(assignments.keys())
+            if not usernames:
+                raise serializers.ValidationError(
+                    {"assignments": "Must provide at least one user for equal split."}
+                )
+
         return attrs
 
     def create(self, validated_data):
@@ -211,10 +218,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
         elif split_type == "equal":
             usernames = list(assignments_data.keys())
-            if not usernames:
-                raise serializers.ValidationError(
-                    {"assignments": "Must provide at least one user for equal split."}
-                )
+
             share_amount = amount / len(usernames)
             for username in usernames:
                 user = User.objects.get(username=username)

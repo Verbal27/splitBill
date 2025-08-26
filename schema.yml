@@ -92,7 +92,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Expense'
-          description: ''
+          description: 'equal/percentage/custom'
   /apps/api/expenses/{id}/:
     get:
       operationId: expenses_retrieve
