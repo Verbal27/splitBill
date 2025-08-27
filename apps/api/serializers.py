@@ -1,14 +1,14 @@
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from .models import SplitBill, Expense, Comment, ExpenseAssignment
+from django.contrib.sites.shortcuts import get_current_site
 from django.utils.encoding import force_bytes
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from rest_framework import serializers
-from .models import SplitBill, Expense, Comment, ExpenseAssignment
-from django.contrib.sites.shortcuts import get_current_site
+from django.conf import settings
 from django.urls import reverse
 from decimal import Decimal
-from django.conf import settings
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -242,6 +242,7 @@ class SplitBillSerializer(serializers.ModelSerializer):
     )
     expenses = ExpenseSerializer(many=True, read_only=True)
     comments = CommentSerializer(many=True, read_only=True)
+    balances = serializers.SerializerMethodField()
 
     class Meta:
         model = SplitBill
@@ -255,6 +256,7 @@ class SplitBillSerializer(serializers.ModelSerializer):
             "member_usernames",
             "expenses",
             "comments",
+            "balances",
             "active",
         ]
 
@@ -287,6 +289,25 @@ class SplitBillSerializer(serializers.ModelSerializer):
                 )
 
         return split_bill
+
+    def get_balances(self, obj):
+        """
+        Returns how much each member owes to the owner
+        across all expenses of this split bill.
+        """
+        balances = {}
+        owner = obj.owner
+
+        # Get all assignments for this split bill
+        assignments = ExpenseAssignment.objects.filter(expense__split_bill=obj)
+
+        for assignment in assignments:
+            if assignment.user == owner:
+                continue
+            balances.setdefault(assignment.user.username, Decimal("0.00"))
+            balances[assignment.user.username] += assignment.share_amount
+
+        return {user: str(amount) for user, amount in balances.items()}
 
 
 class AddMemberSerializer(serializers.Serializer):

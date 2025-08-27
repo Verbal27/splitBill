@@ -1,10 +1,10 @@
 from django.contrib.sites.shortcuts import get_current_site
-from django.urls import reverse
-from django.core.mail import send_mail
 from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
-from rest_framework import permissions
 from .tokens import account_activation_token
+from django.core.mail import send_mail
+from rest_framework import permissions
+from django.urls import reverse
 
 
 def send_activation_email(user, request):

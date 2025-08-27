@@ -27,7 +27,7 @@ router.register(r"users", UpdateUserView)
 urlpatterns = [
     path("", include(router.urls)),
     path("register/", UserRegister.as_view(), name="register"),
-    path("activate/<uidb64>/<token>/", UserActivation.as_view(), name="activate"),
+    path("activate/<uidb64>/<token>/", UserActivation.as_view(), name="activate-user"),
     path("token/", TokenObtainPairView.as_view(), name="token-obtain-pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     path("reset-password/", ResetPassword.as_view(), name="password-reset"),
