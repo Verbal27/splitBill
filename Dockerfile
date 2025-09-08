@@ -46,4 +46,7 @@ ENTRYPOINT ["/bin/sh", "-c", "echo \"$PG_SERVICE_CONF\" > /home/appuser/.pg_serv
 
 EXPOSE 8000
 
+USER appuser
+ENV PATH="/home/appuser/.local/bin:${PATH}"
+
 CMD gunicorn split_bill.wsgi:application --bind 0.0.0.0:$PORT
