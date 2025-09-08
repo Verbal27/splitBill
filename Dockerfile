@@ -12,17 +12,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy Uv binary so we can use it
+# Copy Uv binary
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy dependency files and install packages globally
+# Copy dependency files
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --system
+
+# Install dependencies using Uv (user-local)
+RUN uv sync --locked
 
 # Add non-root user
 ARG UID=10001
 RUN adduser --disabled-password --gecos "" --home "/home/appuser" \
     --shell "/sbin/nologin" --uid "${UID}" appuser
 
-# Create PG service config file
-RUN mkdir -p /
+# Create PG config file
+RUN mkdir -p /home/appuser && \
+    touch /home/appuser/.pg_service.conf && \
+    chown appuser:appuser /home/appuser/.pg_service.conf
+
+# Copy project source code
+COPY . .
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose Railway port
+EXPOSE 8000
+
+# Use wrapper script as ENTRYPOINT
+ENTRYPOINT ["/app/start.sh"]
