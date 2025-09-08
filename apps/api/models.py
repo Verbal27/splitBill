@@ -28,6 +28,7 @@ class Expense(models.Model):
     split_bill = models.ForeignKey(
         SplitBill, related_name="expenses", on_delete=models.CASCADE
     )
+    paid_by = models.ForeignKey(User, related_name="paid_by", on_delete=models.CASCADE)
     title = models.CharField(max_length=255)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     split_type = models.CharField(max_length=20, choices=SPLIT_CHOICES, default="equal")

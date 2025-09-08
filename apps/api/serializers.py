@@ -141,6 +141,12 @@ class ExpenseSerializer(serializers.ModelSerializer):
         required=False,
     )
     assigned_users = serializers.SerializerMethodField(read_only=True)
+    paid_by = serializers.SlugRelatedField(
+        slug_field="username",
+        queryset=User.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = Expense
@@ -150,6 +156,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "amount",
             "split_type",
             "assignments",
+            "paid_by",
             "assigned_users",
             "date",
             "split_bill",
@@ -196,6 +203,10 @@ class ExpenseSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        split_bill = validated_data.get("split_bill")
+        if "paid_by" not in validated_data or validated_data["paid_by"] is None:
+            validated_data["paid_by"] = split_bill.owner
+
         split_type = validated_data.get("split_type", "equal")
         assignments_data = validated_data.pop("assignments", {})
         expense = Expense.objects.create(**validated_data)
@@ -218,7 +229,6 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
         elif split_type == "equal":
             usernames = list(assignments_data.keys())
-
             share_amount = amount / len(usernames)
             for username in usernames:
                 user = User.objects.get(username=username)
@@ -291,23 +301,28 @@ class SplitBillSerializer(serializers.ModelSerializer):
         return split_bill
 
     def get_balances(self, obj):
-        """
-        Returns how much each member owes to the owner
-        across all expenses of this split bill.
-        """
         balances = {}
-        owner = obj.owner
 
-        # Get all assignments for this split bill
-        assignments = ExpenseAssignment.objects.filter(expense__split_bill=obj)
+        assignments = ExpenseAssignment.objects.filter(
+            expense__split_bill=obj
+        ).select_related("expense", "user")
 
         for assignment in assignments:
-            if assignment.user == owner:
-                continue
-            balances.setdefault(assignment.user.username, Decimal("0.00"))
-            balances[assignment.user.username] += assignment.share_amount
+            payer = assignment.expense.paid_by
+            debtor = assignment.user
+            amount = assignment.share_amount
 
-        return {user: str(amount) for user, amount in balances.items()}
+            if debtor == payer:
+                continue
+
+            balances.setdefault(debtor.username, {})
+            balances[debtor.username].setdefault(payer.username, Decimal("0.00"))
+            balances[debtor.username][payer.username] += amount
+
+        return {
+            debtor: {creditor: str(amount) for creditor, amount in creditors.items()}
+            for debtor, creditors in balances.items()
+        }
 
 
 class AddMemberSerializer(serializers.Serializer):
