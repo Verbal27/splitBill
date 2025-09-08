@@ -18,7 +18,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Copy dependency files
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies using Uv (user-local)
+# Install dependencies globally as root
 RUN uv sync --locked
 
 # Add non-root user
@@ -26,7 +26,7 @@ ARG UID=10001
 RUN adduser --disabled-password --gecos "" --home "/home/appuser" \
     --shell "/sbin/nologin" --uid "${UID}" appuser
 
-# Create PG config file
+# Create PG service config file
 RUN mkdir -p /home/appuser && \
     touch /home/appuser/.pg_service.conf && \
     chown appuser:appuser /home/appuser/.pg_service.conf
