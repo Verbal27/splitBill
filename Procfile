@@ -1,0 +1,1 @@
+web: gunicorn split_bill.wsgi --bind 0.0.0.0:$PORT
