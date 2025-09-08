@@ -30,15 +30,19 @@ RUN adduser \
     --uid "${UID}" \
     appuser
 
-# Copy PG service config
-COPY .pg_service.conf /home/appuser/.pg_service.conf
-RUN chown -R appuser:appuser /home/appuser
+# Create PG service config file from environment variable
+RUN mkdir -p /home/appuser && \
+    touch /home/appuser/.pg_service.conf && \
+    chown appuser:appuser /home/appuser/.pg_service.conf
 
 # Copy project source code
 COPY . .
 RUN chown -R appuser:appuser /app
 
 USER appuser
+
+# At container startup, inject PG config
+ENTRYPOINT ["/bin/sh", "-c", "echo \"$PG_SERVICE_CONF\" > /home/appuser/.pg_service.conf && exec \"$@\"", "--"]
 
 EXPOSE 8000
 
