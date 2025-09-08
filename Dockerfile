@@ -18,9 +18,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Copy dependency files
 COPY pyproject.toml uv.lock ./
 
+# Export Uv dependencies to requirements.txt
+RUN uv export -r > requirements.txt
+
 # Install all dependencies globally so any user can access them
-RUN uv sync --locked
-RUN pip install --no-cache-dir gunicorn
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Add non-root user
 ARG UID=10001
