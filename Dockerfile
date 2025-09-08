@@ -7,17 +7,16 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install build dependencies for psycopg / Pillow etc.
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy uv binary
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Copy dependency files and install via uv
+# Copy project files first (for caching dependencies)
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked
+
+# Install Gunicorn system-wide + Uv dependencies
+RUN pip install --no-cache-dir gunicorn && uv sync --locked --system
 
 # Add non-root user
 ARG UID=10001
@@ -41,10 +40,10 @@ RUN chown -R appuser:appuser /app
 # Switch to non-root user
 USER appuser
 
-# At container startup, inject PG config
+# Inject PG config at startup
 ENTRYPOINT ["/bin/sh", "-c", "echo \"$PG_SERVICE_CONF\" > /home/appuser/.pg_service.conf && exec \"$@\"", "--"]
 
 EXPOSE 8000
 
-# Use full path to Gunicorn
-CMD ["/home/appuser/.local/bin/gunicorn", "split_bill.wsgi:application", "--bind", "0.0.0.0:$PORT"]
+# Start Gunicorn (now system-wide, so it will always be found)
+CMD ["gunicorn", "split_bill.wsgi:application", "--bind", "0.0.0.0:$PORT"]
