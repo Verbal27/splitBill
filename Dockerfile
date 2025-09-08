@@ -19,7 +19,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 
 # Export Uv dependencies to requirements.txt
-RUN uv export -r > requirements.txt
+RUN uv export > requirements.txt
 
 # Install all dependencies globally so any user can access them
 RUN pip install --no-cache-dir -r requirements.txt
