@@ -46,4 +46,4 @@ ENTRYPOINT ["/bin/sh", "-c", "echo \"$PG_SERVICE_CONF\" > /home/appuser/.pg_serv
 
 EXPOSE 8000
 
-CMD ["uv", "run", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD gunicorn myproject.wsgi:application --bind 0.0.0.0:$PORT
