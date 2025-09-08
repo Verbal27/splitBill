@@ -41,14 +41,10 @@ RUN chown -R appuser:appuser /app
 # Switch to non-root user
 USER appuser
 
-# Add Uv-installed packages to PATH so gunicorn is found
-ENV PATH="/home/appuser/.local/bin:${PATH}"
-
 # At container startup, inject PG config
 ENTRYPOINT ["/bin/sh", "-c", "echo \"$PG_SERVICE_CONF\" > /home/appuser/.pg_service.conf && exec \"$@\"", "--"]
 
-# Expose the port Railway provides
 EXPOSE 8000
 
-# Start Gunicorn on the Railway port
-CMD ["gunicorn", "split_bill.wsgi:application", "--bind", "0.0.0.0:$PORT"]
+# Use full path to Gunicorn
+CMD ["/home/appuser/.local/bin/gunicorn", "split_bill.wsgi:application", "--bind", "0.0.0.0:$PORT"]
