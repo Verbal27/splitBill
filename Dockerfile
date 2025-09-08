@@ -18,7 +18,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 
 # Install dependencies globally using Uv
-RUN uv sync --locked --system
+RUN uv sync --locked
 
 # Add non-root user
 ARG UID=10001
