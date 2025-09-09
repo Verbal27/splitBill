@@ -7,6 +7,7 @@ from rest_framework import permissions
 from django.conf import settings
 from django.urls import reverse
 import threading
+import requests
 
 
 def send_email_async(subject, message, recipient_list):
@@ -27,6 +28,22 @@ def send_activation_email(user, request):
     threading.Thread(
         target=send_email_async, args=(subject, message, [user.email])
     ).start()
+
+
+def send_mailgun_email(subject, message, recipient):
+    response = requests.post(
+        f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+        auth=("api", settings.MAILGUN_API_KEY),
+        data={
+            "from": f"SplitBill <{settings.DEFAULT_FROM_EMAIL}>",
+            "to": [recipient],
+            "subject": subject,
+            "text": message,
+        },
+    )
+    if response.status_code != 200:
+        raise Exception(f"Mailgun error: {response.text}")
+    return response
 
 
 class IsSplitBillMember(permissions.BasePermission):

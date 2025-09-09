@@ -9,17 +9,18 @@ from .serializers import (
     AddMemberSerializer,
     RemoveMemberSerializer,
 )
+from .utils import IsSplitBillMember, send_mailgun_email
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import generics, viewsets, permissions, status
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from .utils import send_activation_email, IsSplitBillMember
+from django.contrib.sites.shortcuts import get_current_site
+from django.utils.encoding import force_str, force_bytes
 from django.core.exceptions import PermissionDenied
-from django.utils.http import urlsafe_base64_decode
 from .models import SplitBill, Expense, Comment
 from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from .tokens import account_activation_token
 from django.contrib.auth.models import User
-from django.utils.encoding import force_str
 from rest_framework.views import APIView
 from django.core.mail import send_mail
 from django.conf import settings
@@ -32,17 +33,29 @@ class UserRegister(generics.CreateAPIView):
 
     def post(self, request, *args, **kwargs):
         try:
-            serializer = RegisterSerializer(data=request.data)
+            serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             user = serializer.save()
 
-            # Send activation email, safe from crashing
-            send_activation_email(user, request)
+            # Build activation link
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = account_activation_token.make_token(user)
+            domain = get_current_site(request).domain
+            link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
+            activate_url = f"http://{domain}{link}"
+
+            # Prepare email
+            subject = "Activate your SplitBill account"
+            message = f"Hi ,\n\nClick here to activate your account:\n{activate_url}"
+
+            # Send via Mailgun API
+            send_mailgun_email(subject, message, user.email)
 
             return Response(
                 {"detail": "Check your email to activate your account."},
                 status=status.HTTP_201_CREATED,
             )
+
         except Exception as e:
             import traceback
 
