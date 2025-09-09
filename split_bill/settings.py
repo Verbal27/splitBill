@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import timedelta
+import dj_database_url
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -73,8 +74,8 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "SERVERS": [
         {
-            # "url": "https://splitbill-production.up.railway.app",
-            "url": "http://localhost:8000",
+            "url": "https://splitbill-production.up.railway.app",
+            # "url": "http://localhost:8000",
             "description": "Production server",
         },
     ],
@@ -116,13 +117,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "split_bill.wsgi.application"
 
-# DATABASES = {"default": dj_database_url.config(default=os.environ.get("DATABASE_URL"))}
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "OPTIONS": {"service": "my_db", "passfile": ".pgpass"},
-    }
-}
+DATABASES = {"default": dj_database_url.config(default=os.environ.get("DATABASE_URL"))}
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "OPTIONS": {"service": "my_db", "passfile": ".pgpass"},
+#     }
+# }
 
 AUTH_PASSWORD_VALIDATORS = [
     {
