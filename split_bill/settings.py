@@ -1,6 +1,5 @@
 from pathlib import Path
 from datetime import timedelta
-import dj_database_url
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -47,7 +46,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     "splitbill-production.up.railway.app",
 ]
 
-CORS_ALLOW_CREDENTIALS = True
+# CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     "authorization",
     "content-type",
@@ -74,7 +73,8 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "SERVERS": [
         {
-            "url": "https://splitbill-production.up.railway.app",
+            # "url": "https://splitbill-production.up.railway.app",
+            "url": "http://localhost:8000",
             "description": "Production server",
         },
     ],
@@ -88,8 +88,8 @@ SIMPLE_JWT = {
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_USE_TLS = True
-EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
-EMAIL_PORT = int(os.environ.get("EMAIL_PORT", 587))
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
@@ -116,7 +116,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "split_bill.wsgi.application"
 
-DATABASES = {"default": dj_database_url.config(default=os.environ.get("DATABASE_URL"))}
+# DATABASES = {"default": dj_database_url.config(default=os.environ.get("DATABASE_URL"))}
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "OPTIONS": {"service": "my_db", "passfile": ".pgpass"},
+    }
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {
