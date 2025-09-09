@@ -34,7 +34,13 @@ class UserRegister(generics.CreateAPIView):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            send_activation_email(user, request)
+
+            try:
+                send_activation_email(user, request)
+            except Exception as e:
+                # Log the error instead of crashing
+                print(f"Failed to send activation email: {e}")
+
             return Response(
                 {"detail": "Check your email to activate your account."},
                 status=status.HTTP_201_CREATED,
