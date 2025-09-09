@@ -4,19 +4,31 @@ from django.utils.encoding import force_bytes
 from .tokens import account_activation_token
 from django.core.mail import send_mail
 from rest_framework import permissions
+from django.conf import settings
 from django.urls import reverse
 
 
 def send_activation_email(user, request):
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = account_activation_token.make_token(user)
-    domain = get_current_site(request).domain
-    link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
-    activate_url = f"http://{domain}{link}"
+    try:
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = account_activation_token.make_token(user)
 
-    subject = "Activate your account"
-    message = f"Hi {user.username}, click the link to activate: {activate_url}"
-    send_mail(subject, message, None, [user.email])
+        # Use request domain, fallback to settings
+        try:
+            domain = get_current_site(request).domain
+        except Exception:
+            domain = "localhost:8000"  # fallback
+
+        link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
+        activate_url = f"http://{domain}{link}"
+
+        subject = "Activate your account"
+        message = f"Hi {user.username}, click the link to activate: {activate_url}"
+
+        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email])
+    except Exception as e:
+        # Log the error instead of crashing
+        print(f"[Activation Email Failed] {e}")
 
 
 class IsSplitBillMember(permissions.BasePermission):
