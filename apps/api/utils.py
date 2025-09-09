@@ -6,29 +6,27 @@ from django.core.mail import send_mail
 from rest_framework import permissions
 from django.conf import settings
 from django.urls import reverse
+import threading
+
+
+def send_email_async(subject, message, recipient_list):
+    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, recipient_list)
 
 
 def send_activation_email(user, request):
-    try:
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = account_activation_token.make_token(user)
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = account_activation_token.make_token(user)
+    domain = get_current_site(request).domain
+    link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
+    activate_url = f"http://{domain}{link}"
 
-        try:
-            domain = get_current_site(request).domain
-        except Exception:
-            domain = "localhost:8000"
+    subject = "Activate your account"
+    message = f"Hi {user.username}, click the link to activate: {activate_url}"
 
-        link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
-        activate_url = f"http://{domain}{link}"
-
-        subject = "Activate your account"
-        message = f"Hi from SplitBill, click the link to activate: {activate_url}"
-
-        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email])
-    except Exception as e:
-        import traceback
-
-        print("[Activation Email Error]", traceback.format_exc())
+    # Send email in a separate thread
+    threading.Thread(
+        target=send_email_async, args=(subject, message, [user.email])
+    ).start()
 
 
 class IsSplitBillMember(permissions.BasePermission):
