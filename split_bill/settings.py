@@ -73,8 +73,14 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "App to split expenses",
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "SERVERS": [{"url": "http://localhost:8000", "description": "Local server"}],
+    "SERVERS": [
+        {
+            "url": "https://splitbill-production.up.railway.app",
+            "description": "Production server",
+        },
+    ],
 }
+
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
