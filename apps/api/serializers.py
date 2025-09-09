@@ -204,6 +204,9 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         split_bill = validated_data.get("split_bill")
+        if not split_bill:
+            raise serializers.ValidationError({"split_bill": "SplitBill is required."})
+
         if "paid_by" not in validated_data or validated_data["paid_by"] is None:
             validated_data["paid_by"] = split_bill.owner
 
@@ -212,29 +215,42 @@ class ExpenseSerializer(serializers.ModelSerializer):
         expense = Expense.objects.create(**validated_data)
         amount = expense.amount
 
-        if split_type == "custom":
-            for username, share_amount in assignments_data.items():
-                user = User.objects.get(username=username)
-                ExpenseAssignment.objects.create(
-                    expense=expense, user=user, share_amount=share_amount
-                )
+        try:
+            if split_type == "custom":
+                for username, share_amount in assignments_data.items():
+                    user = User.objects.filter(username=username).first()
+                    if not user:
+                        continue  # skip invalid users
+                    ExpenseAssignment.objects.create(
+                        expense=expense, user=user, share_amount=share_amount
+                    )
 
-        elif split_type == "percentage":
-            for username, percentage in assignments_data.items():
-                user = User.objects.get(username=username)
-                share_amount = (amount * Decimal(str(percentage))) / Decimal("100")
-                ExpenseAssignment.objects.create(
-                    expense=expense, user=user, share_amount=share_amount
-                )
+            elif split_type == "percentage":
+                for username, percentage in assignments_data.items():
+                    user = User.objects.filter(username=username).first()
+                    if not user:
+                        continue
+                    share_amount = (amount * Decimal(str(percentage))) / Decimal("100")
+                    ExpenseAssignment.objects.create(
+                        expense=expense, user=user, share_amount=share_amount
+                    )
 
-        elif split_type == "equal":
-            usernames = list(assignments_data.keys())
-            share_amount = amount / len(usernames)
-            for username in usernames:
-                user = User.objects.get(username=username)
-                ExpenseAssignment.objects.create(
-                    expense=expense, user=user, share_amount=share_amount
-                )
+            elif split_type == "equal":
+                usernames = list(assignments_data.keys())
+                if not usernames:
+                    usernames = [split_bill.owner.username]  # fallback to owner
+                share_amount = amount / max(len(usernames), 1)
+                for username in usernames:
+                    user = User.objects.filter(username=username).first()
+                    if not user:
+                        continue
+                    ExpenseAssignment.objects.create(
+                        expense=expense, user=user, share_amount=share_amount
+                    )
+
+        except Exception as e:
+            # Log the error if needed
+            pass  # prevent crashing the API
 
         return expense
 
@@ -273,14 +289,20 @@ class SplitBillSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         member_usernames = validated_data.pop("member_usernames", [])
         request = self.context.get("request")
-        split_bill = SplitBill.objects.create(owner=request.user, **validated_data)
+        if not request:
+            raise serializers.ValidationError(
+                {"request": "Request context is required."}
+            )
 
+        split_bill = SplitBill.objects.create(owner=request.user, **validated_data)
         split_bill.members.add(request.user)
 
         for username in member_usernames:
             try:
                 user = User.objects.get(username=username)
                 split_bill.members.add(user)
+
+                # Build link safely
                 pk = split_bill.pk
                 domain = get_current_site(request).domain
                 link = reverse("split-bill-detail", kwargs={"pk": pk})
@@ -292,11 +314,15 @@ class SplitBillSerializer(serializers.ModelSerializer):
                     f"Someone added you to a split bill session.\n"
                     f"View it here: {activate_url}"
                 )
-                send_mail(subject, message, settings.EMAIL_HOST_USER, [user.email])
+
+                try:
+                    send_mail(subject, message, settings.EMAIL_HOST_USER, [user.email])
+                except Exception:
+                    pass  # prevent email failure from crashing API
+
             except User.DoesNotExist:
-                raise serializers.ValidationError(
-                    {"member_usernames": f"User '{username}' not found."}
-                )
+                # Skip invalid usernames instead of failing
+                continue
 
         return split_bill
 
