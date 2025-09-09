@@ -45,6 +45,7 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https?://localhost(:[0-9]+)?$",
     r"^https?://127\.0\.0\.1(:[0-9]+)?$",
+    "splitbill-production.up.railway.app",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
