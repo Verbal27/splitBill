@@ -31,21 +31,26 @@ class UserRegister(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
+        try:
+            serializer = RegisterSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
             user = serializer.save()
 
-            try:
-                send_activation_email(user, request)
-            except Exception as e:
-                # Log the error instead of crashing
-                print(f"Failed to send activation email: {e}")
+            # Send activation email, safe from crashing
+            send_activation_email(user, request)
 
             return Response(
                 {"detail": "Check your email to activate your account."},
                 status=status.HTTP_201_CREATED,
             )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            import traceback
+
+            print("[Registration Error]", traceback.format_exc())
+            return Response(
+                {"detail": "Internal server error during registration."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class UserActivation(APIView):

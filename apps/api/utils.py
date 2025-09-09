@@ -13,11 +13,10 @@ def send_activation_email(user, request):
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = account_activation_token.make_token(user)
 
-        # Use request domain, fallback to settings
         try:
             domain = get_current_site(request).domain
         except Exception:
-            domain = "localhost:8000"  # fallback
+            domain = "localhost:8000"
 
         link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
         activate_url = f"http://{domain}{link}"
@@ -27,8 +26,9 @@ def send_activation_email(user, request):
 
         send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email])
     except Exception as e:
-        # Log the error instead of crashing
-        print(f"[Activation Email Failed] {e}")
+        import traceback
+
+        print("[Activation Email Error]", traceback.format_exc())
 
 
 class IsSplitBillMember(permissions.BasePermission):
