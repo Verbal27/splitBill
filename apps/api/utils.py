@@ -11,7 +11,7 @@ def send_activation_email(user, request):
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = account_activation_token.make_token(user)
     domain = get_current_site(request).domain
-    link = reverse("activate", kwargs={"uidb64": uid, "token": token})
+    link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
     activate_url = f"http://{domain}{link}"
 
     subject = "Activate your account"
