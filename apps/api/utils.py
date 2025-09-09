@@ -22,7 +22,7 @@ def send_activation_email(user, request):
         activate_url = f"http://{domain}{link}"
 
         subject = "Activate your account"
-        message = f"Hi {user.username}, click the link to activate: {activate_url}"
+        message = f"Hi from SplitBill, click the link to activate: {activate_url}"
 
         send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email])
     except Exception as e:
