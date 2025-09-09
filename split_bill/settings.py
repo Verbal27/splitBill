@@ -98,7 +98,7 @@ EMAIL_HOST_USER = "apikey"
 EMAIL_HOST_PASSWORD = os.environ.get("SENDGRID_API_KEY")  # Set this in Railway secrets
 
 # Default sender email
-DEFAULT_FROM_EMAIL = "noreply@yourdomain.com"
+DEFAULT_FROM_EMAIL = "noreply@splitbill.com"
 
 
 LOGIN_REDIRECT_URL = "apps/api/login/"
