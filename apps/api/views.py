@@ -24,9 +24,6 @@ from rest_framework.views import APIView
 from django.core.mail import send_mail
 from django.conf import settings
 from django.urls import reverse
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class UserRegister(generics.CreateAPIView):
@@ -42,10 +39,7 @@ class UserRegister(generics.CreateAPIView):
                 {"detail": "Check your email to activate your account."},
                 status=status.HTTP_201_CREATED,
             )
-        logger.warning("RAW BODY: %s", request.body)
-        logger.warning("CONTENT TYPE: %s", request.content_type)
-        return super().post(request, *args, **kwargs)
-        # return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class UserActivation(APIView):
