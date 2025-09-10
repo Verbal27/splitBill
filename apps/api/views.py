@@ -22,8 +22,6 @@ from rest_framework.response import Response
 from .tokens import account_activation_token
 from django.contrib.auth.models import User
 from rest_framework.views import APIView
-from django.core.mail import send_mail
-from django.conf import settings
 from django.urls import reverse
 
 
@@ -96,6 +94,7 @@ class UpdateUserView(viewsets.ModelViewSet):
 
 class ResetPassword(generics.GenericAPIView):
     serializer_class = ResetPasswordSerializer
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
@@ -109,12 +108,11 @@ class ResetPassword(generics.GenericAPIView):
             reverse("reset-password-confirm", kwargs={"uidb64": uidb64, "token": token})
         )
 
-        send_mail(
+        # Send email via Mailgun
+        send_mailgun_email(
             subject="Password Reset Request",
-            message=f"Click the link to reset your password: {reset_link}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
+            message=f"Hi {user.username},\n\nClick the link below to reset your password:\n{reset_link}",
+            to_email=user.email,
         )
 
         return Response(

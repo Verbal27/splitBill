@@ -1,14 +1,12 @@
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from .models import SplitBill, Expense, Comment, ExpenseAssignment
-from django.contrib.sites.shortcuts import get_current_site
 from django.utils.encoding import force_bytes
 from django.contrib.auth.models import User
-from django.core.mail import send_mail
 from rest_framework import serializers
-from django.conf import settings
 from django.urls import reverse
 from decimal import Decimal
+from .utils import send_mailgun_email
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -295,33 +293,36 @@ class SplitBillSerializer(serializers.ModelSerializer):
             )
 
         split_bill = SplitBill.objects.create(owner=request.user, **validated_data)
-        split_bill.members.add(request.user)  # add owner
+        split_bill.members.add(request.user)
 
-        for email in emails:
-            # Try to find existing user by email
+        for email in set(emails):
             user = User.objects.filter(email=email).first()
 
             if user:
+                # Add existing user to the split bill
                 split_bill.members.add(user)
+                email = user.email
+                greeting = f"Hi {user.username},"
+            else:
+                # No user yet, still send invitation
+                email = email
+                greeting = "Hi there,"
 
-            # Send invitation email (works for both existing and new users)
+            invite_link = request.build_absolute_uri(
+                reverse("split-bill-detail", kwargs={"pk": split_bill.pk})
+            )
+
+            subject = "You've been invited to a SplitBill session!"
+            message = (
+                f"{greeting},\n\n"
+                f"You've been invited to join a SplitBill session titled '{split_bill.title}'.\n"
+                f"Click here to view it: {invite_link}\n\n"
+                f"If you don't have an account, please register first."
+            )
+
             try:
-                pk = split_bill.pk
-                domain = get_current_site(request).domain
-                link = reverse("split-bill-detail", kwargs={"pk": pk})
-                invite_url = f"http://{domain}{link}"
-
-                subject = "You've been invited to a SplitBill session!"
-                message = (
-                    f"Hi,\n\n"
-                    f"You've been invited to join a SplitBill session titled '{split_bill.title}'.\n"
-                    f"Click here to view it: {invite_url}\n\n"
-                    f"If you don't have an account, please register first."
-                )
-
-                send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
+                send_mailgun_email(subject, message, email)
             except Exception as e:
-                # Log the error in production; don't crash the request
                 print(f"[ERROR] Failed to send invite email to {email}: {e}")
 
         return split_bill
@@ -352,33 +353,44 @@ class SplitBillSerializer(serializers.ModelSerializer):
 
 
 class AddMemberSerializer(serializers.Serializer):
-    username = serializers.CharField()
+    email = serializers.EmailField()
 
-    def validate_username(self, value):
-        try:
-            return User.objects.get(username=value)
-        except User.DoesNotExist:
-            raise serializers.ValidationError(f"User '{value}' does not exist.")
+    def validate_email(self, value):
+        return value
 
     def save(self, **kwargs):
         split_bill = self.context["split-bill"]
-        user = self.validated_data["username"]
-
-        split_bill.members.add(user)
-
         request = self.context.get("request")
-        pk = split_bill.pk
-        domain = get_current_site(request).domain
-        link = reverse("split-bill-detail", kwargs={"pk": pk})
-        url = f"http://{domain}{link}"
+        email = self.validated_data["email"]
 
-        subject = "Seems you owe someone money :D"
-        message = (
-            f"Hi {user.username},\n\n"
-            f"Someone added you to a split bill session.\n"
-            f"View it here: {url}"
+        user = User.objects.filter(email=email).first()
+
+        if user:
+            # Add existing user to the split bill
+            split_bill.members.add(user)
+            recipient_email = user.email
+            greeting = f"Hi {user.username},"
+        else:
+            # No user yet, still send invitation
+            recipient_email = email
+            greeting = "Hi there,"
+
+        invite_link = request.build_absolute_uri(
+            reverse("split-bill-detail", kwargs={"pk": split_bill.pk})
         )
-        send_mail(subject, message, settings.EMAIL_HOST_USER, [user.email])
+
+        subject = "You've been invited to a SplitBill session!"
+        message = (
+            f"{greeting}\n\n"
+            f"You've been invited to join a SplitBill session titled '{split_bill.title}'.\n"
+            f"Click here to view it: {invite_link}\n\n"
+            f"If you don't have an account yet, please register first using this email address."
+        )
+
+        try:
+            send_mailgun_email(subject, message, recipient_email)
+        except Exception as e:
+            print(f"[ERROR] Failed to send invite email to {recipient_email}: {e}")
 
         return split_bill
 
