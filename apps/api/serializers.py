@@ -1,12 +1,20 @@
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from .models import SplitBill, Expense, Comment, ExpenseAssignment
+from .models import (
+    PendingInvitation,
+    SplitBill,
+    Expense,
+    Comment,
+    ExpenseAssignment,
+    SplitBillMember,
+)
 from django.utils.encoding import force_bytes
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from django.urls import reverse
 from decimal import Decimal
 from .utils import send_mailgun_email
+from django.db import transaction
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -16,14 +24,18 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ("username", "email", "password")
 
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email already exists.")
+        return value
+
     def create(self, validated_data):
-        user = User.objects.create_user(
+        return User.objects.create_user(
             username=validated_data["username"],
             email=validated_data["email"],
             password=validated_data["password"],
             is_active=False,
         )
-        return user
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
@@ -35,13 +47,10 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
-
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-
         if password:
             instance.set_password(password)
-
         instance.save()
         return instance
 
@@ -51,21 +60,17 @@ class ResetPasswordSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         email = attrs.get("email", "")
-
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
             raise serializers.ValidationError(
                 {"email": "User with this email does not exist."}
             )
-
         uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
         token = PasswordResetTokenGenerator().make_token(user)
-
         attrs["user"] = user
         attrs["uidb64"] = uidb64
         attrs["token"] = token
-
         return attrs
 
 
@@ -78,7 +83,6 @@ class SetNewPasswordSerializer(serializers.Serializer):
         uidb64 = attrs.get("uidb64")
         token = attrs.get("token")
         password = attrs.get("password")
-
         try:
             uid = urlsafe_base64_decode(uidb64).decode()
             user = User.objects.get(pk=uid)
@@ -123,27 +127,246 @@ class CommentSerializer(serializers.ModelSerializer):
 
 
 class ExpenseAssignmentSerializer(serializers.ModelSerializer):
-    user = serializers.SlugRelatedField(
-        slug_field="username", queryset=User.objects.all()
-    )
+    user = serializers.SerializerMethodField()
 
     class Meta:
         model = ExpenseAssignment
         fields = ["user", "share_amount"]
 
+    def get_user(self, obj):
+        if obj.user:
+            return {
+                "id": obj.user.id,
+                "username": obj.user.username,
+                "email": obj.user.email,
+            }
+        elif obj.split_bill_member:
+            return {"alias": obj.split_bill_member.display_name()}
+        return {"alias": "Unknown"}
 
-class ExpenseSerializer(serializers.ModelSerializer):
+
+class BaseExpenseSerializer(serializers.ModelSerializer):
+    paid_by_member = serializers.IntegerField(write_only=True)
+    split_type = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Expense
+        fields = [
+            "id",
+            "title",
+            "amount",
+            "paid_by_member",
+            "assignments",
+            "date",
+            "split_bill",
+            "split_type",
+        ]
+
+    def validate_paid_by_member(self, value):
+        member = SplitBillMember.objects.filter(id=value).first()
+        if not member:
+            raise serializers.ValidationError(f"Invalid SplitBillMember ID {value}")
+        if not member.user:
+            raise serializers.ValidationError(
+                "Paid by member must be a registered user."
+            )
+        return member
+
+    def create_assignments(self, expense, assignments):
+        """
+        Creates ExpenseAssignment objects for given assignments.
+        Handles members without linked users by assigning user=None.
+        """
+        if isinstance(assignments, list):
+            # Equal split
+            share_amount = (expense.amount / len(assignments)).quantize(Decimal("0.01"))
+            for member_id in assignments:
+                member = SplitBillMember.objects.filter(id=member_id).first()
+                if not member:
+                    continue
+                ExpenseAssignment.objects.create(
+                    expense=expense,
+                    user=member.user,  # can be None
+                    split_bill_member=member,
+                    share_amount=share_amount,
+                )
+        elif isinstance(assignments, dict):
+            # Custom or percentage
+            for member_id, value in assignments.items():
+                member = SplitBillMember.objects.filter(id=member_id).first()
+                if not member:
+                    continue
+                ExpenseAssignment.objects.create(
+                    expense=expense,
+                    user=member.user,  # can be None
+                    split_bill_member=member,
+                    share_amount=Decimal(str(value)).quantize(Decimal("0.01")),
+                )
+        else:
+            raise serializers.ValidationError("Invalid assignments format")
+
+
+class EqualExpenseSerializer(BaseExpenseSerializer):
+    assignments = serializers.ListField(
+        child=serializers.IntegerField(), write_only=True
+    )
+
+    def create(self, validated_data):
+        member_ids = validated_data.pop("assignments")
+        paid_by_member = validated_data.pop("paid_by_member")
+        paid_by_user = paid_by_member.user  # ensure it's a User
+
+        expense = Expense.objects.create(
+            split_type="equal",
+            paid_by=paid_by_user,
+            **validated_data,
+        )
+        self.create_assignments(expense, member_ids)
+        return expense
+
+
+class CustomExpenseSerializer(BaseExpenseSerializer):
     assignments = serializers.DictField(
         child=serializers.DecimalField(max_digits=10, decimal_places=2),
         write_only=True,
-        required=False,
     )
-    assigned_users = serializers.SerializerMethodField(read_only=True)
-    paid_by = serializers.SlugRelatedField(
-        slug_field="username",
-        queryset=User.objects.all(),
-        required=False,
-        allow_null=True,
+
+    def validate(self, attrs):
+        assignments = self.initial_data.get("assignments", {})
+        total = sum(Decimal(str(v)) for v in assignments.values())
+        if abs(total - Decimal(str(attrs.get("amount", 0)))) > Decimal("0.01"):
+            raise serializers.ValidationError(
+                {"assignments": "Shares must add up to total amount."}
+            )
+        return attrs
+
+    def create(self, validated_data):
+        assignments = validated_data.pop("assignments")
+        paid_by_member = validated_data.pop("paid_by_member")
+        paid_by_user = paid_by_member.user
+
+        expense = Expense.objects.create(
+            split_type="custom",
+            paid_by=paid_by_user,
+            **validated_data,
+        )
+        self.create_assignments(expense, assignments)
+        return expense
+
+
+class PercentageExpenseSerializer(BaseExpenseSerializer):
+    assignments = serializers.DictField(
+        child=serializers.DecimalField(max_digits=5, decimal_places=2),
+        write_only=True,
+    )
+
+    def validate(self, attrs):
+        assignments = self.initial_data.get("assignments", {})
+        total = sum(Decimal(str(v)) for v in assignments.values())
+        if abs(total - Decimal("100")) > Decimal("0.01"):
+            raise serializers.ValidationError(
+                {"assignments": "Percentages must add up to 100."}
+            )
+        return attrs
+
+    def create(self, validated_data):
+        assignments = validated_data.pop("assignments")
+        paid_by_member = validated_data.pop("paid_by_member")
+        paid_by_user = paid_by_member.user
+        amount = Decimal(str(validated_data["amount"]))
+
+        # Convert percentages to absolute amounts
+        for member_id, pct in assignments.items():
+            assignments[member_id] = (
+                amount * Decimal(str(pct)) / Decimal("100")
+            ).quantize(Decimal("0.01"))
+
+        expense = Expense.objects.create(
+            split_type="percentage",
+            paid_by=paid_by_user,
+            **validated_data,
+        )
+        self.create_assignments(expense, assignments)
+        return expense
+
+
+class ExpenseUpdateSerializer(serializers.Serializer):
+    split_type = serializers.ChoiceField(choices=Expense.SPLIT_CHOICES)
+    assignments = serializers.JSONField()
+
+    def validate(self, attrs):
+        split_type = attrs.get("split_type")
+        assignments = attrs.get("assignments")
+
+        if split_type == "equal" and not isinstance(assignments, list):
+            raise serializers.ValidationError(
+                "Equal split requires a list of member IDs."
+            )
+        if split_type in ["custom", "percentage"] and not isinstance(assignments, dict):
+            raise serializers.ValidationError(
+                f"{split_type.capitalize()} split requires a dict."
+            )
+
+        if split_type == "custom":
+            total = sum(Decimal(str(v)) for v in assignments.values())
+            if abs(total - Decimal(str(self.instance.amount))) > Decimal("0.01"):
+                raise serializers.ValidationError("Shares must add up to total amount.")
+        elif split_type == "percentage":
+            total = sum(Decimal(str(v)) for v in assignments.values())
+            if abs(total - Decimal("100")) > Decimal("0.01"):
+                raise serializers.ValidationError("Percentages must add up to 100.")
+        return attrs
+
+    def update(self, instance, validated_data):
+        split_type = validated_data["split_type"]
+        assignments = validated_data["assignments"]
+
+        # Delete old assignments
+        instance.expense_assignment.all().delete()
+
+        if split_type == "equal":
+            share_amount = (instance.amount / len(assignments)).quantize(
+                Decimal("0.01")
+            )
+            for member_id in assignments:
+                member = SplitBillMember.objects.filter(id=member_id).first()
+                if not member:
+                    continue
+                ExpenseAssignment.objects.create(
+                    expense=instance,
+                    split_bill_member=member,
+                    user=member.user,  # can be None
+                    share_amount=share_amount,
+                )
+
+        elif split_type in ["custom", "percentage"]:
+            for member_id, value in assignments.items():
+                member = SplitBillMember.objects.filter(id=member_id).first()
+                if not member:
+                    continue
+                if split_type == "percentage":
+                    value = (
+                        instance.amount * Decimal(str(value)) / Decimal("100")
+                    ).quantize(Decimal("0.01"))
+                else:
+                    value = Decimal(str(value)).quantize(Decimal("0.01"))
+
+                ExpenseAssignment.objects.create(
+                    expense=instance,
+                    split_bill_member=member,
+                    user=member.user,  # can be None
+                    share_amount=value,
+                )
+
+        instance.split_type = split_type
+        instance.save()
+        return instance
+
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    paid_by = serializers.SerializerMethodField()
+    assignments = ExpenseAssignmentSerializer(
+        many=True, source="expense_assignment", read_only=True
     )
 
     class Meta:
@@ -153,119 +376,49 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "title",
             "amount",
             "split_type",
-            "assignments",
             "paid_by",
-            "assigned_users",
+            "assignments",
             "date",
-            "split_bill",
         ]
 
-    def validate(self, attrs):
-        split_bill = attrs.get("split_bill")
-        if split_bill and not split_bill.active:
-            raise serializers.ValidationError(
-                "You cannot add expenses to a closed split bill."
+    def get_paid_by(self, obj):
+        member = getattr(obj, "paid_by_member", None)
+        if member:
+            name = getattr(member.user, "username", None) or getattr(
+                member, "email", "Unregistered"
             )
+            return {"id": member.id, "name": name}
+        return None
 
-        split_type = attrs.get("split_type", "equal")
-        amount = Decimal(str(attrs.get("amount", 0)))
-        assignments = self.initial_data.get("assignments", {})
 
-        if split_type == "custom":
-            if assignments:
-                total_share = sum(Decimal(str(v)) for v in assignments.values())
-                if abs(total_share - amount) > Decimal("0.01"):
-                    raise serializers.ValidationError(
-                        {
-                            "assignments": f"Sum of shares ({total_share}) must equal the total amount ({amount})."
-                        }
-                    )
+class SplitBillMemberSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
 
-        elif split_type == "percentage":
-            if assignments:
-                total_percentage = sum(Decimal(str(v)) for v in assignments.values())
-                if abs(total_percentage - Decimal("100")) > Decimal("0.01"):
-                    raise serializers.ValidationError(
-                        {
-                            "assignments": f"Sum of percentages must equal 100 (got {total_percentage})."
-                        }
-                    )
+    class Meta:
+        model = SplitBillMember
+        fields = ["id", "user", "email", "alias"]
 
-        elif split_type == "equal":
-            usernames = list(assignments.keys())
-            if not usernames:
-                raise serializers.ValidationError(
-                    {"assignments": "Must provide at least one user for equal split."}
-                )
-
-        return attrs
-
-    def create(self, validated_data):
-        split_bill = validated_data.get("split_bill")
-        if not split_bill:
-            raise serializers.ValidationError({"split_bill": "SplitBill is required."})
-
-        if "paid_by" not in validated_data or validated_data["paid_by"] is None:
-            validated_data["paid_by"] = split_bill.owner
-
-        split_type = validated_data.get("split_type", "equal")
-        assignments_data = validated_data.pop("assignments", {})
-        expense = Expense.objects.create(**validated_data)
-        amount = expense.amount
-
-        try:
-            if split_type == "custom":
-                for username, share_amount in assignments_data.items():
-                    user = User.objects.filter(username=username).first()
-                    if not user:
-                        continue  # skip invalid users
-                    ExpenseAssignment.objects.create(
-                        expense=expense, user=user, share_amount=share_amount
-                    )
-
-            elif split_type == "percentage":
-                for username, percentage in assignments_data.items():
-                    user = User.objects.filter(username=username).first()
-                    if not user:
-                        continue
-                    share_amount = (amount * Decimal(str(percentage))) / Decimal("100")
-                    ExpenseAssignment.objects.create(
-                        expense=expense, user=user, share_amount=share_amount
-                    )
-
-            elif split_type == "equal":
-                usernames = list(assignments_data.keys())
-                if not usernames:
-                    usernames = [split_bill.owner.username]  # fallback to owner
-                share_amount = amount / max(len(usernames), 1)
-                for username in usernames:
-                    user = User.objects.filter(username=username).first()
-                    if not user:
-                        continue
-                    ExpenseAssignment.objects.create(
-                        expense=expense, user=user, share_amount=share_amount
-                    )
-
-        except Exception as e:
-            # Log the error if needed
-            pass  # prevent crashing the API
-
-        return expense
-
-    def get_assigned_users(self, obj):
-        return {
-            a.user.username: str(a.share_amount) for a in obj.expense_assignment.all()
-        }
+    def get_user(self, obj):
+        if obj.user:
+            return {
+                "id": obj.user.id,
+                "username": getattr(obj.user, "username", None) or "Unregistered",
+            }
+        return None
 
 
 class SplitBillSerializer(serializers.ModelSerializer):
     owner = UserSerializer(read_only=True)
-    members = UserSerializer(many=True, read_only=True)
-    members_emails = serializers.ListField(
-        child=serializers.EmailField(), write_only=True, required=False
+    members = SplitBillMemberSerializer(
+        many=True, read_only=True, source="splitbill_members"
+    )
+    member_inputs = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True,
+        required=False,
     )
     expenses = ExpenseSerializer(many=True, read_only=True)
-    comments = CommentSerializer(many=True, read_only=True)
+    comments = serializers.SerializerMethodField()
     balances = serializers.SerializerMethodField()
 
     class Meta:
@@ -277,7 +430,7 @@ class SplitBillSerializer(serializers.ModelSerializer):
             "currency",
             "owner",
             "members",
-            "members_emails",
+            "member_inputs",
             "expenses",
             "comments",
             "balances",
@@ -285,66 +438,118 @@ class SplitBillSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        emails = validated_data.pop("members_emails", [])
         request = self.context.get("request")
         if not request:
             raise serializers.ValidationError(
                 {"request": "Request context is required."}
             )
 
-        split_bill = SplitBill.objects.create(owner=request.user, **validated_data)
-        split_bill.members.add(request.user)
+        member_inputs = validated_data.pop("member_inputs", [])
 
-        for email in set(emails):
-            user = User.objects.filter(email=email).first()
+        try:
+            with transaction.atomic():
+                # Create the split bill
+                split_bill = SplitBill.objects.create(
+                    owner=request.user, **validated_data
+                )
 
-            if user:
-                # Add existing user to the split bill
-                split_bill.members.add(user)
-                email = user.email
-                greeting = f"Hi {user.username},"
-            else:
-                # No user yet, still send invitation
-                email = email
-                greeting = "Hi there,"
+                # Add the owner as a member
+                SplitBillMember.objects.create(
+                    split_bill=split_bill,
+                    user=request.user,
+                    alias=request.user.username,
+                )
+                split_bill.members.add(request.user)
 
-            invite_link = request.build_absolute_uri(
-                reverse("split-bill-detail", kwargs={"pk": split_bill.pk})
-            )
+                # Process member_inputs
+                for entry in member_inputs:
+                    email = entry.get("email")
+                    alias = entry.get("alias") or "Unknown"
+                    user = User.objects.filter(email=email).first() if email else None
 
-            subject = "You've been invited to a SplitBill session!"
-            message = (
-                f"{greeting},\n\n"
-                f"You've been invited to join a SplitBill session titled '{split_bill.title}'.\n"
-                f"Click here to view it: {invite_link}\n\n"
-                f"If you don't have an account, please register first."
-            )
+                    # Create SplitBillMember
+                    member = SplitBillMember.objects.create(
+                        split_bill=split_bill,
+                        user=user,
+                        email=email,
+                        alias=alias,
+                    )
 
-            try:
-                send_mailgun_email(subject, message, email)
-            except Exception as e:
-                print(f"[ERROR] Failed to send invite email to {email}: {e}")
+                    if user:
+                        split_bill.members.add(user)
+                    elif email:
+                        # Create pending invitation for unregistered users
+                        PendingInvitation.objects.create(
+                            split_bill=split_bill,
+                            email=email,
+                            alias=alias,
+                        )
 
-        return split_bill
+                    # Send invitation email
+                    if email:
+                        try:
+                            invite_link = request.build_absolute_uri(
+                                reverse(
+                                    "split-bill-detail", kwargs={"pk": split_bill.pk}
+                                )
+                            )
+                            send_mailgun_email(
+                                "You've been invited to a SplitBill session!",
+                                f"Hi {alias}, join '{split_bill.title}' here: {invite_link}",
+                                email,
+                            )
+                        except Exception as e:
+                            print(f"[EMAIL ERROR] {e}")
+
+            return split_bill
+
+        except Exception as e:
+            raise serializers.ValidationError({"detail": str(e)})
+
+    def get_comments(self, obj):
+        try:
+            qs = obj.comments.all()
+            return CommentSerializer(qs, many=True).data
+        except Exception as e:
+            print(f"[COMMENTS ERROR] {e}")
+            return []
 
     def get_balances(self, obj):
         balances = {}
+        try:
+            assignments = ExpenseAssignment.objects.filter(
+                expense__split_bill=obj
+            ).select_related("expense", "user")
 
-        assignments = ExpenseAssignment.objects.filter(
-            expense__split_bill=obj
-        ).select_related("expense", "user")
+            for a in assignments:
+                try:
+                    payer = getattr(a.expense, "paid_by", None)
+                    debtor = a.user or a.split_bill_member
+                    amount = a.share_amount
 
-        for assignment in assignments:
-            payer = assignment.expense.paid_by
-            debtor = assignment.user
-            amount = assignment.share_amount
+                    if not amount or not debtor:
+                        continue
 
-            if debtor == payer:
-                continue
+                    debtor_name = getattr(debtor, "username", None) or getattr(
+                        debtor, "alias", "Unknown"
+                    )
+                    payer_name = (
+                        getattr(payer, "username", None)
+                        or getattr(a.expense, "paid_by_member", None)
+                        and getattr(a.expense.paid_by_member, "alias", "Unregistered")
+                        or "Unregistered"
+                    )
 
-            balances.setdefault(debtor.username, {})
-            balances[debtor.username].setdefault(payer.username, Decimal("0.00"))
-            balances[debtor.username][payer.username] += amount
+                    balances.setdefault(debtor_name, {})
+                    balances[debtor_name].setdefault(payer_name, Decimal("0.00"))
+                    balances[debtor_name][payer_name] += amount
+
+                except Exception as inner_e:
+                    print(f"[BALANCE ITEM ERROR] {inner_e}")
+                    continue
+
+        except Exception as e:
+            print(f"[BALANCES ERROR] {e}")
 
         return {
             debtor: {creditor: str(amount) for creditor, amount in creditors.items()}
@@ -352,54 +557,96 @@ class SplitBillSerializer(serializers.ModelSerializer):
         }
 
 
-class AddMemberSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+class SplitBillMemberUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SplitBillMember
+        fields = ["id", "email", "alias"]
 
-    def validate_email(self, value):
-        return value
+    def update(self, instance, validated_data):
+        email = validated_data.get("email")
+        alias = validated_data.get("alias")
+
+        if email:
+            instance.email = email
+            user = User.objects.filter(email=email).first()
+            if user:
+                instance.user = user
+
+        if alias:
+            instance.alias = alias
+
+        instance.save()
+        return instance
+
+
+class AddMemberSerializer(serializers.Serializer):
+    alias = serializers.CharField(required=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
 
     def save(self, **kwargs):
         split_bill = self.context["split-bill"]
         request = self.context.get("request")
-        email = self.validated_data["email"]
+        alias = self.validated_data["alias"].strip()
+        email = self.validated_data.get("email", "").strip() or None
 
-        user = User.objects.filter(email=email).first()
+        user = User.objects.filter(email=email).first() if email else None
+
+        existing_member = split_bill.splitbill_members.filter(
+            email=email if email else "", alias=alias
+        ).first()
+        if existing_member:
+            return existing_member
+
+        member = SplitBillMember.objects.create(
+            split_bill=split_bill,
+            user=user,
+            alias=alias,
+            email=email,
+        )
+
+        if not user and email:
+            # Create a pending invitation
+            PendingInvitation.objects.create(
+                split_bill=split_bill, email=email, alias=alias
+            )
 
         if user:
-            # Add existing user to the split bill
             split_bill.members.add(user)
-            recipient_email = user.email
-            greeting = f"Hi {user.username},"
-        else:
-            # No user yet, still send invitation
-            recipient_email = email
-            greeting = "Hi there,"
 
-        invite_link = request.build_absolute_uri(
-            reverse("split-bill-detail", kwargs={"pk": split_bill.pk})
-        )
+        if email and request:
+            invite_link = request.build_absolute_uri(
+                reverse("split-bill-detail", kwargs={"pk": split_bill.pk})
+            )
+            subject = "You've been invited to a SplitBill session!"
+            message = f"Hi {alias or (user.username if user else 'there')},\n\nYou've been invited to join '{split_bill.title}'.\nClick here: {invite_link}"
+            try:
+                send_mailgun_email(subject, message, email)
+            except Exception as e:
+                print(f"[ERROR] Failed to send invite email to {email}: {e}")
 
-        subject = "You've been invited to a SplitBill session!"
-        message = (
-            f"{greeting}\n\n"
-            f"You've been invited to join a SplitBill session titled '{split_bill.title}'.\n"
-            f"Click here to view it: {invite_link}\n\n"
-            f"If you don't have an account yet, please register first using this email address."
-        )
-
-        try:
-            send_mailgun_email(subject, message, recipient_email)
-        except Exception as e:
-            print(f"[ERROR] Failed to send invite email to {recipient_email}: {e}")
-
-        return split_bill
+        return member
 
 
 class RemoveMemberSerializer(serializers.Serializer):
-    username = serializers.CharField()
+    alias = serializers.CharField(required=False)
+    email = serializers.EmailField(required=False)
 
-    def validate_username(self, value):
-        try:
-            return User.objects.get(username=value)
-        except User.DoesNotExist:
-            raise serializers.ValidationError(f"User '{value}' does not exist.")
+    def save(self, **kwargs):
+        split_bill = self.context["split-bill"]
+        alias = self.validated_data.get("alias")
+        email = self.validated_data.get("email")
+
+        member_qs = split_bill.splitbill_members.all()
+        if alias:
+            member_qs = member_qs.filter(alias=alias)
+        if email:
+            member_qs = member_qs.filter(email=email)
+
+        removed_members = []
+        for member in member_qs:
+            if member.user:
+                split_bill.members.remove(member.user)
+            removed_members.append(member.display_name())
+            member.delete()
+
+        return removed_members

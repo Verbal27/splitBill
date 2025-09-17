@@ -62,25 +62,6 @@ paths:
                 items:
                   $ref: '#/components/schemas/Expense'
           description: ''
-    post:
-      operationId: expenses_create
-      tags:
-      - expenses
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Expense'
-        required: true
-      security:
-      - jwtAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Expense'
-          description: ''
   /apps/api/expenses/{id}/:
     get:
       operationId: expenses_retrieve
@@ -92,55 +73,6 @@ paths:
         required: true
       tags:
       - expenses
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Expense'
-          description: ''
-    put:
-      operationId: expenses_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - expenses
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Expense'
-        required: true
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Expense'
-          description: ''
-    patch:
-      operationId: expenses_partial_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - expenses
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchedExpense'
       security:
       - jwtAuth: []
       responses:
@@ -165,6 +97,91 @@ paths:
       responses:
         '204':
           description: No response body
+  /apps/api/expenses/{id}/update:
+    patch:
+      operationId: expenses_update_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - expenses
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedExpenseUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpenseUpdate'
+          description: ''
+  /apps/api/expenses/custom:
+    post:
+      operationId: expenses_custom_create
+      tags:
+      - expenses
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomExpense'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomExpense'
+          description: ''
+  /apps/api/expenses/equal:
+    post:
+      operationId: expenses_equal_create
+      tags:
+      - expenses
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EqualExpense'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EqualExpense'
+          description: ''
+  /apps/api/expenses/percentage:
+    post:
+      operationId: expenses_percentage_create
+      tags:
+      - expenses
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PercentageExpense'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PercentageExpense'
+          description: ''
   /apps/api/register/:
     post:
       operationId: register_create
@@ -421,6 +438,65 @@ paths:
               schema:
                 $ref: '#/components/schemas/RemoveMember'
           description: ''
+  /apps/api/split-bill/{split_bill_id}/members/{id}/update/:
+    put:
+      operationId: split_bill_members_update_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: split_bill_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - split-bill
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SplitBillMemberUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SplitBillMemberUpdate'
+          description: ''
+    patch:
+      operationId: split_bill_members_update_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: split_bill_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - split-bill
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSplitBillMemberUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SplitBillMemberUpdate'
+          description: ''
   /apps/api/token/:
     post:
       operationId: token_create
@@ -591,10 +667,13 @@ components:
     AddMember:
       type: object
       properties:
-        username:
+        alias:
           type: string
+        email:
+          type: string
+          format: email
       required:
-      - username
+      - alias
     Comment:
       type: object
       properties:
@@ -619,6 +698,81 @@ components:
       - id
       - split_bill
       - text
+    CustomExpense:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        paid_by:
+          type: integer
+          nullable: true
+        assignments:
+          type: object
+          additionalProperties:
+            type: string
+            format: decimal
+            pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          writeOnly: true
+        date:
+          type: string
+          format: date
+        split_bill:
+          type: integer
+        split_type:
+          type: string
+          readOnly: true
+      required:
+      - amount
+      - assignments
+      - id
+      - split_bill
+      - split_type
+      - title
+    EqualExpense:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        paid_by:
+          type: integer
+          nullable: true
+        assignments:
+          type: array
+          items:
+            type: integer
+          writeOnly: true
+        date:
+          type: string
+          format: date
+        split_bill:
+          type: integer
+        split_type:
+          type: string
+          readOnly: true
+          default: equal
+      required:
+      - amount
+      - assignments
+      - id
+      - split_bill
+      - split_type
+      - title
     Expense:
       type: object
       properties:
@@ -634,68 +788,38 @@ components:
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
         split_type:
           $ref: '#/components/schemas/SplitTypeEnum'
-        assignments:
-          type: object
-          additionalProperties:
-            type: string
-            format: decimal
-            pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-          writeOnly: true
         paid_by:
-          type: string
-          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
-            only.
-          nullable: true
-        assigned_users:
+          allOf:
+          - $ref: '#/components/schemas/User'
+          readOnly: true
+        assignments:
           type: string
           readOnly: true
         date:
           type: string
           format: date
-        split_bill:
-          type: integer
       required:
       - amount
-      - assigned_users
-      - date
+      - assignments
       - id
-      - split_bill
+      - paid_by
+      - split_type
       - title
-    PatchedExpense:
+    ExpenseUpdate:
       type: object
       properties:
-        id:
-          type: integer
-          readOnly: true
-        title:
-          type: string
-          maxLength: 255
-        amount:
-          type: string
-          format: decimal
-          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
         split_type:
           $ref: '#/components/schemas/SplitTypeEnum'
-        assignments:
-          type: object
-          additionalProperties:
-            type: string
-            format: decimal
-            pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-          writeOnly: true
-        paid_by:
-          type: string
-          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
-            only.
-          nullable: true
-        assigned_users:
-          type: string
-          readOnly: true
-        date:
-          type: string
-          format: date
-        split_bill:
-          type: integer
+        assignments: {}
+      required:
+      - assignments
+      - split_type
+    PatchedExpenseUpdate:
+      type: object
+      properties:
+        split_type:
+          $ref: '#/components/schemas/SplitTypeEnum'
+        assignments: {}
     PatchedSplitBill:
       type: object
       properties:
@@ -719,13 +843,16 @@ components:
         members:
           type: array
           items:
-            $ref: '#/components/schemas/User'
+            $ref: '#/components/schemas/SplitBillMember'
           readOnly: true
-        member_usernames:
+        member_inputs:
           type: array
           items:
-            type: string
+            type: object
+            additionalProperties: {}
           writeOnly: true
+          description: 'List of { ''email'': str (optional), ''alias'': str (optional)
+            }'
         expenses:
           type: array
           items:
@@ -741,6 +868,21 @@ components:
           readOnly: true
         active:
           type: boolean
+    PatchedSplitBillMemberUpdate:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        alias:
+          type: string
+          nullable: true
+          maxLength: 255
     PatchedUserUpdate:
       type: object
       properties:
@@ -758,6 +900,44 @@ components:
         password:
           type: string
           writeOnly: true
+    PercentageExpense:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        paid_by:
+          type: integer
+          nullable: true
+        assignments:
+          type: object
+          additionalProperties:
+            type: string
+            format: decimal
+            pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          writeOnly: true
+        date:
+          type: string
+          format: date
+        split_bill:
+          type: integer
+        split_type:
+          type: string
+          readOnly: true
+      required:
+      - amount
+      - assignments
+      - id
+      - split_bill
+      - split_type
+      - title
     Register:
       type: object
       properties:
@@ -781,10 +961,10 @@ components:
     RemoveMember:
       type: object
       properties:
-        username:
+        alias:
           type: string
       required:
-      - username
+      - alias
     ResetPassword:
       type: object
       properties:
@@ -831,13 +1011,16 @@ components:
         members:
           type: array
           items:
-            $ref: '#/components/schemas/User'
+            $ref: '#/components/schemas/SplitBillMember'
           readOnly: true
-        member_usernames:
+        member_inputs:
           type: array
           items:
-            type: string
+            type: object
+            additionalProperties: {}
           writeOnly: true
+          description: 'List of { ''email'': str (optional), ''alias'': str (optional)
+            }'
         expenses:
           type: array
           items:
@@ -863,6 +1046,45 @@ components:
       - members
       - owner
       - title
+    SplitBillMember:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        alias:
+          type: string
+          nullable: true
+          maxLength: 255
+      required:
+      - id
+      - user
+    SplitBillMemberUpdate:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        alias:
+          type: string
+          nullable: true
+          maxLength: 255
+      required:
+      - id
     SplitTypeEnum:
       enum:
       - equal
@@ -951,4 +1173,4 @@ components:
       bearerFormat: JWT
 servers:
 - url: http://localhost:8000
-  description: Local server
+  description: Production server

@@ -52,12 +52,27 @@ class IsSplitBillMember(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        # obj is expected to be a SplitBill or have a split_bill relation
         if hasattr(obj, "members"):  # obj is SplitBill
-            return request.user in obj.members.all() or request.user.email == obj.owner
+            return (
+                obj.members.filter(id=request.user.id).exists()
+                or request.user == obj.owner
+            )
         elif hasattr(obj, "split_bill"):  # obj is Expense or Comment
             return (
-                request.user.email in obj.split_bill.members.all()
-                or request.user.email == obj.split_bill.owner
+                obj.split_bill.members.filter(id=request.user.id).exists()
+                or request.user == obj.split_bill.owner
             )
+        return False
+
+
+class IsSplitBillOwner(permissions.BasePermission):
+    """
+    Permission to only allow owner of splitbill to perform an action.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        if hasattr(obj, "owner"):
+            return request.user == obj.owner
+        elif hasattr(obj, "split_bill"):
+            return request.user == obj.split_bill.owner
         return False

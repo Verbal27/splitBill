@@ -1,5 +1,7 @@
 from django.urls import path, include
 from .views import (
+    ExpenseUpdateView,
+    UpdateSplitBillMemberView,
     UserRegister,
     ResetPassword,
     PasswordResetCompleteView,
@@ -10,7 +12,10 @@ from .views import (
     CommentCreateView,
     AddMemberView,
     RemoveMemberView,
-    ExpenseListCreateView,
+    ExpenseListView,
+    EqualExpenseCreateView,
+    PercentageExpenseCreateView,
+    CustomExpenseCreateView,
     ExpenseDetailView,
     UserActivation,
 )
@@ -22,7 +27,7 @@ from rest_framework.routers import DefaultRouter
 
 
 router = DefaultRouter()
-router.register(r"users", UpdateUserView)
+router.register(r"users", UpdateUserView, basename="user")
 
 urlpatterns = [
     path("", include(router.urls)),
@@ -51,7 +56,22 @@ urlpatterns = [
         RemoveMemberView.as_view(),
         name="remove-member",
     ),
-    path("expenses/", ExpenseListCreateView.as_view(), name="expense-list"),
+    path(
+        "split-bill/<int:split_bill_id>/members/<int:pk>/update/",
+        UpdateSplitBillMemberView.as_view(),
+        name="splitbill-member-update",
+    ),
+    path("expenses/", ExpenseListView.as_view(), name="expense-list"),
+    path("expenses/equal", EqualExpenseCreateView.as_view(), name="expense-equal"),
+    path(
+        "expenses/percentage",
+        PercentageExpenseCreateView.as_view(),
+        name="expense-percentage",
+    ),
+    path("expenses/custom", CustomExpenseCreateView.as_view(), name="expense-custom"),
     path("expenses/<int:pk>/", ExpenseDetailView.as_view(), name="expense-detail"),
+    path(
+        "expenses/<int:pk>/update", ExpenseUpdateView.as_view(), name="expense-detail"
+    ),
     path("comments/", CommentCreateView.as_view(), name="comment-create"),
 ]

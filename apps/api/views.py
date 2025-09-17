@@ -1,22 +1,27 @@
 from .serializers import (
+    ExpenseUpdateSerializer,
     RegisterSerializer,
+    SplitBillMemberUpdateSerializer,
     UserUpdateSerializer,
     ResetPasswordSerializer,
     SetNewPasswordSerializer,
     SplitBillSerializer,
+    EqualExpenseSerializer,
+    CustomExpenseSerializer,
+    PercentageExpenseSerializer,
     ExpenseSerializer,
     CommentSerializer,
     AddMemberSerializer,
     RemoveMemberSerializer,
 )
-from .utils import IsSplitBillMember, send_mailgun_email
+from .utils import IsSplitBillMember, IsSplitBillOwner, send_mailgun_email
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import generics, viewsets, permissions, status
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.contrib.sites.shortcuts import get_current_site
 from django.utils.encoding import force_str, force_bytes
 from django.core.exceptions import PermissionDenied
-from .models import SplitBill, Expense, Comment
+from .models import PendingInvitation, SplitBill, Expense, Comment, SplitBillMember
 from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from .tokens import account_activation_token
@@ -29,24 +34,47 @@ class UserRegister(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
+    def perform_create(self, serializer):
+        user = serializer.save()
+
+        pending_invites = PendingInvitation.objects.filter(email=user.email)
+        for invite in pending_invites:
+            split_bill = invite.split_bill
+
+            member = split_bill.splitbill_members.filter(email=user.email).first()
+            if member:
+                member.user = user
+                member.save()
+            else:
+                SplitBillMember.objects.create(
+                    split_bill=split_bill,
+                    user=user,
+                    email=user.email,
+                    alias=user.username,
+                )
+
+            split_bill.members.add(user)
+
+            invite.delete()
+
+        return user
+
     def post(self, request, *args, **kwargs):
         try:
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            user = serializer.save()
 
-            # Build activation link
+            self.perform_create(serializer)
+            user = serializer.instance
+
             uid = urlsafe_base64_encode(force_bytes(user.pk))
             token = account_activation_token.make_token(user)
             domain = get_current_site(request).domain
             link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
             activate_url = f"http://{domain}{link}"
 
-            # Prepare email
             subject = "Activate your SplitBill account"
-            message = f"Hi ,\n\nClick here to activate your account:\n{activate_url}"
-
-            # Send via Mailgun API
+            message = f"Hi {user.username},\n\nClick here to activate your account:\n{activate_url}"
             send_mailgun_email(subject, message, user.email)
 
             return Response(
@@ -80,9 +108,11 @@ class UserActivation(APIView):
 
 
 class UpdateUserView(viewsets.ModelViewSet):
-    queryset = User.objects.all()
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserUpdateSerializer
+
+    def get_queryset(self):
+        return User.objects.filter(id=self.request.user.id)
 
     def update(self, request, *args, **kwargs):
         user = self.get_object()
@@ -157,6 +187,7 @@ class PasswordResetCompleteView(generics.GenericAPIView):
 class SplitBillCreateView(generics.ListCreateAPIView):
     serializer_class = SplitBillSerializer
     permission_classes = [permissions.IsAuthenticated]
+    queryset = SplitBill.objects.all()
 
     def get_queryset(self):
         user = self.request.user
@@ -173,50 +204,115 @@ class SplitBillDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
 
 
-class ExpenseListCreateView(generics.ListCreateAPIView):
+class UpdateSplitBillMemberView(generics.UpdateAPIView):
+    serializer_class = SplitBillMemberUpdateSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillOwner]
+
+    def get_queryset(self):
+        split_bill_id = self.kwargs["split_bill_id"]
+        return SplitBillMember.objects.filter(
+            split_bill_id=split_bill_id, split_bill__owner=self.request.user
+        )
+
+
+class EqualExpenseCreateView(generics.CreateAPIView):
     queryset = (
         Expense.objects.all()
         .select_related("split_bill")
         .prefetch_related("assignments")
     )
-    serializer_class = ExpenseSerializer
+    serializer_class = EqualExpenseSerializer
     permission_classes = [permissions.IsAuthenticated]
 
 
-class ExpenseDetailView(generics.RetrieveUpdateDestroyAPIView):
+class CustomExpenseCreateView(generics.CreateAPIView):
     queryset = (
         Expense.objects.all()
         .select_related("split_bill")
         .prefetch_related("assignments")
     )
+    serializer_class = CustomExpenseSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+
+class PercentageExpenseCreateView(generics.CreateAPIView):
+    queryset = (
+        Expense.objects.all()
+        .select_related("split_bill")
+        .prefetch_related("assignments")
+    )
+    serializer_class = PercentageExpenseSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+
+class ExpenseListView(generics.ListAPIView):
     serializer_class = ExpenseSerializer
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
 
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            Expense.objects.filter(split_bill__members__id=user.id)
+            .select_related("paid_by", "split_bill")
+            .prefetch_related("expense_assignment__user")
+        )
+
+
+class ExpenseDetailView(generics.RetrieveDestroyAPIView):
+    serializer_class = ExpenseSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
+
+    def get_queryset(self):
+        return Expense.objects.filter(split_bill__members=self.request.user)
+
+
+class ExpenseUpdateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
+    serializer_class = ExpenseUpdateSerializer
+
+    def get_object(self):
+        expense = get_object_or_404(Expense, pk=self.kwargs["pk"])
+        self.check_object_permissions(self.request, expense)
+        return expense
+
+    def patch(self, request, *args, **kwargs):
+        expense = self.get_object()
+        serializer = self.serializer_class(expense, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"detail": "Expense updated successfully."}, status=status.HTTP_200_OK
+        )
+
 
 class AddMemberView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillOwner]
     serializer_class = AddMemberSerializer
 
     def post(self, request, pk):
         split_bill = get_object_or_404(SplitBill, pk=pk)
-
-        if request.user != split_bill.owner:
-            raise PermissionDenied("Only the splitbill owner can add members.")
-
         serializer = AddMemberSerializer(
-            data=request.data, context={"request": request, "split-bill": split_bill}
+            data=request.data,
+            context={"request": request, "split-bill": split_bill},
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-
+        member = serializer.save()
         return Response(
-            {"detail": "Member added successfully"},
-            status=status.HTTP_201_CREATED,
+            {
+                "detail": "Member added successfully",
+                "member": {
+                    "id": member.id,
+                    "alias": member.alias,
+                    "email": member.email,
+                    "user": member.user.id if member.user else None,
+                },
+            },
+            status=201,
         )
 
 
 class RemoveMemberView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillOwner]
     serializer_class = RemoveMemberSerializer
 
     def post(self, request, pk):
@@ -228,18 +324,36 @@ class RemoveMemberView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        username = request.data.get("username")
-        if not username:
+        alias = request.data.get("alias")
+        email = request.data.get("email")
+
+        if not alias and not email:
             return Response(
-                {"detail": "Username is required."},
+                {"detail": "Either alias or email is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = get_object_or_404(User, username=username)
-        split_bill.members.remove(user)
+        member_qs = split_bill.splitbill_members.all()
+        if alias:
+            member_qs = member_qs.filter(alias=alias)
+        if email:
+            member_qs = member_qs.filter(email=email)
+
+        if not member_qs.exists():
+            return Response(
+                {"detail": "No member found with the provided alias/email."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        removed_members = []
+        for member in member_qs:
+            if member.user:
+                split_bill.members.remove(member.user)
+            removed_members.append(member.display_name())
+            member.delete()
 
         return Response(
-            {"detail": f"User '{username}' removed successfully."},
+            {"detail": f"Removed member(s): {', '.join(removed_members)}"},
             status=status.HTTP_200_OK,
         )
 
@@ -247,7 +361,7 @@ class RemoveMemberView(APIView):
 class CommentCreateView(generics.CreateAPIView):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
 
     def perform_create(self, serializer):
         split_bill = serializer.validated_data["split_bill"]
