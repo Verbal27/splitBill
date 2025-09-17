@@ -19,7 +19,7 @@ from decimal import Decimal
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, min_length=8)
 
     class Meta:
         model = User
@@ -67,8 +67,10 @@ class ResetPasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"email": "User with this email does not exist."}
             )
+
         uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
         token = PasswordResetTokenGenerator().make_token(user)
+
         attrs["user"] = user
         attrs["uidb64"] = uidb64
         attrs["token"] = token
@@ -112,7 +114,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "email"]
+        fields = ["id", "username", "email", "password"]
 
 
 class CommentSerializer(serializers.ModelSerializer):

@@ -136,28 +136,41 @@ class ResetPassword(generics.GenericAPIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        serializer = self.serializer_class(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer = self.serializer_class(data=request.data)
+            serializer.is_valid(raise_exception=True)
 
-        user = serializer.validated_data["user"]
-        uidb64 = serializer.validated_data["uidb64"]
-        token = serializer.validated_data["token"]
+            user = serializer.validated_data["user"]
+            uidb64 = serializer.validated_data["uidb64"]
+            token = serializer.validated_data["token"]
 
-        reset_link = request.build_absolute_uri(
-            reverse("reset-password-confirm", kwargs={"uidb64": uidb64, "token": token})
-        )
+            from urllib.parse import quote
 
-        # Send email via Mailgun
-        send_mailgun_email(
-            subject="Password Reset Request",
-            message=f"Hi {user.username},\n\nClick the link below to reset your password:\n{reset_link}",
-            to_email=user.email,
-        )
+            link = reverse(
+                "reset-password-confirm",
+                kwargs={"uidb64": quote(uidb64), "token": quote(token)},
+            )
+            reset_link = request.build_absolute_uri(link)
 
-        return Response(
-            {"message": "Password reset link sent to your email."},
-            status=status.HTTP_200_OK,
-        )
+            send_mailgun_email(
+                subject="Password Reset Request",
+                message=f"Hi {user.username},\n\nClick the link below to reset your password:\n{reset_link}",
+                recipient=user.email,
+            )
+
+            return Response(
+                {"message": "Password reset link sent to your email."},
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            import traceback
+
+            print("[RESET PASSWORD ERROR]", traceback.format_exc())
+            return Response(
+                {"detail": "Internal server error during password reset."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class PasswordResetConfirmView(generics.GenericAPIView):
