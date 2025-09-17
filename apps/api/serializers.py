@@ -1,5 +1,6 @@
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from rest_framework.validators import UniqueValidator
 from .models import (
     PendingInvitation,
     SplitBill,
@@ -11,10 +12,10 @@ from .models import (
 from django.utils.encoding import force_bytes
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from django.urls import reverse
-from decimal import Decimal
 from .utils import send_mailgun_email
 from django.db import transaction
+from django.urls import reverse
+from decimal import Decimal
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -104,6 +105,11 @@ class SetNewPasswordSerializer(serializers.Serializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(
+        required=True,
+        validators=[UniqueValidator(queryset=User.objects.all())],
+    )
+
     class Meta:
         model = User
         fields = ["id", "username", "email"]
@@ -563,14 +569,41 @@ class SplitBillMemberUpdateSerializer(serializers.ModelSerializer):
         fields = ["id", "email", "alias"]
 
     def update(self, instance, validated_data):
+        request = self.context.get("request")
         email = validated_data.get("email")
         alias = validated_data.get("alias")
 
         if email:
             instance.email = email
+            # Check if the email is already registered
             user = User.objects.filter(email=email).first()
             if user:
                 instance.user = user
+            else:
+                # Create or update a pending invitation
+                PendingInvitation.objects.update_or_create(
+                    split_bill=instance.split_bill,
+                    email=email,
+                    defaults={"alias": alias or instance.alias or ""},
+                )
+
+                # Send invite email
+                if request:
+                    invite_link = request.build_absolute_uri(
+                        reverse(
+                            "split-bill-detail", kwargs={"pk": instance.split_bill.pk}
+                        )
+                    )
+                    subject = "You've been invited to a SplitBill session!"
+                    message = (
+                        f"Hi {alias or instance.alias or 'there'},\n\n"
+                        f"You've been added to '{instance.split_bill.title}'.\n"
+                        f"Click here to view: {invite_link}"
+                    )
+                    try:
+                        send_mailgun_email(subject, message, email)
+                    except Exception as e:
+                        print(f"[EMAIL ERROR] Failed to send invite to {email}: {e}")
 
         if alias:
             instance.alias = alias

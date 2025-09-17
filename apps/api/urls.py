@@ -18,6 +18,7 @@ from .views import (
     CustomExpenseCreateView,
     ExpenseDetailView,
     UserActivation,
+    UserView,
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -27,10 +28,11 @@ from rest_framework.routers import DefaultRouter
 
 
 router = DefaultRouter()
-router.register(r"users", UpdateUserView, basename="user")
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("users/", UserView.as_view(), name="users"),
+    path("users/<int:pk>/", UpdateUserView.as_view(), name="user-update"),
     path("register/", UserRegister.as_view(), name="register"),
     path("activate/<uidb64>/<token>/", UserActivation.as_view(), name="activate-user"),
     path("token/", TokenObtainPairView.as_view(), name="token-obtain-pair"),

@@ -2,6 +2,7 @@ from .serializers import (
     ExpenseUpdateSerializer,
     RegisterSerializer,
     SplitBillMemberUpdateSerializer,
+    UserSerializer,
     UserUpdateSerializer,
     ResetPasswordSerializer,
     SetNewPasswordSerializer,
@@ -16,7 +17,7 @@ from .serializers import (
 )
 from .utils import IsSplitBillMember, IsSplitBillOwner, send_mailgun_email
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
-from rest_framework import generics, viewsets, permissions, status
+from rest_framework import generics, permissions, status
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.contrib.sites.shortcuts import get_current_site
 from django.utils.encoding import force_str, force_bytes
@@ -87,7 +88,7 @@ class UserRegister(generics.CreateAPIView):
 
             print("[Registration Error]", traceback.format_exc())
             return Response(
-                {"detail": "Internal server error during registration."},
+                {"detail": f"Internal server error during registration.{e}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -107,7 +108,15 @@ class UserActivation(APIView):
         return Response({"detail": "Invalid or expired activation link."}, status=400)
 
 
-class UpdateUserView(viewsets.ModelViewSet):
+class UserView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = UserSerializer
+
+    def get_object(self):
+        return self.request.user
+
+
+class UpdateUserView(generics.UpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserUpdateSerializer
 
