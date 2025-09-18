@@ -168,6 +168,26 @@ class ExpenseAssignment(models.Model):
     share_amount = models.DecimalField(max_digits=10, decimal_places=2)
 
 
+class MoneyGiven(models.Model):
+    title = models.CharField(max_length=255)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    given_by = models.ForeignKey(
+        SplitBillMember, on_delete=models.CASCADE, related_name="money_given_out"
+    )
+    given_to = models.ForeignKey(
+        SplitBillMember, on_delete=models.CASCADE, related_name="money_received"
+    )
+    split_bill = models.ForeignKey(
+        SplitBill,
+        on_delete=models.CASCADE,
+        related_name="money_given",
+    )
+    date = models.DateField(default=date.today)
+
+    def __str__(self):
+        return f"{self.title} ({self.amount})"
+
+
 class Comment(models.Model):
     split_bill = models.ForeignKey(
         SplitBill, related_name="comments", on_delete=models.CASCADE

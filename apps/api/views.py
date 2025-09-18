@@ -1,5 +1,6 @@
 from .serializers import (
     ExpenseUpdateSerializer,
+    MoneyGivenSerializer,
     RegisterSerializer,
     SplitBillMemberUpdateSerializer,
     UserSerializer,
@@ -15,6 +16,14 @@ from .serializers import (
     AddMemberSerializer,
     RemoveMemberSerializer,
 )
+from .models import (
+    PendingInvitation,
+    SplitBill,
+    Expense,
+    Comment,
+    SplitBillMember,
+    MoneyGiven,
+)
 from .utils import IsSplitBillMember, IsSplitBillOwner, send_mailgun_email
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import generics, permissions, status
@@ -22,7 +31,7 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.contrib.sites.shortcuts import get_current_site
 from django.utils.encoding import force_str, force_bytes
 from django.core.exceptions import PermissionDenied
-from .models import PendingInvitation, SplitBill, Expense, Comment, SplitBillMember
+from drf_spectacular.utils import extend_schema
 from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from .tokens import account_activation_token
@@ -31,6 +40,7 @@ from rest_framework.views import APIView
 from django.urls import reverse
 
 
+@extend_schema(tags=["user-register"])
 class UserRegister(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
@@ -93,6 +103,7 @@ class UserRegister(generics.CreateAPIView):
             )
 
 
+@extend_schema(tags=["user-activation"])
 class UserActivation(APIView):
     def get(self, request, uidb64, token):
         try:
@@ -108,6 +119,7 @@ class UserActivation(APIView):
         return Response({"detail": "Invalid or expired activation link."}, status=400)
 
 
+@extend_schema(tags=["users"])
 class UserView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserSerializer
@@ -116,13 +128,16 @@ class UserView(generics.RetrieveAPIView):
         return self.request.user
 
 
+@extend_schema(tags=["users"])
 class UpdateUserView(generics.UpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserUpdateSerializer
 
+    @extend_schema(tags=["users"])
     def get_queryset(self):
         return User.objects.filter(id=self.request.user.id)
 
+    @extend_schema(tags=["users"])
     def update(self, request, *args, **kwargs):
         user = self.get_object()
         serializer = self.get_serializer(user, data=request.data, partial=True)
@@ -131,10 +146,12 @@ class UpdateUserView(generics.UpdateAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+@extend_schema(tags=["users"])
 class ResetPassword(generics.GenericAPIView):
     serializer_class = ResetPasswordSerializer
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(tags=["reset_password"])
     def post(self, request):
         try:
             serializer = self.serializer_class(data=request.data)
@@ -173,7 +190,9 @@ class ResetPassword(generics.GenericAPIView):
             )
 
 
+@extend_schema(tags=["users"])
 class PasswordResetConfirmView(generics.GenericAPIView):
+    @extend_schema(tags=["reset_password"])
     def get(self, request, uidb64, token):
         try:
             uid = urlsafe_base64_decode(uidb64).decode()
@@ -192,9 +211,11 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         return Response({"message": "Token is valid"}, status=status.HTTP_200_OK)
 
 
+@extend_schema(tags=["users"])
 class PasswordResetCompleteView(generics.GenericAPIView):
     serializer_class = SetNewPasswordSerializer
 
+    @extend_schema(tags=["reset_password"])
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -237,6 +258,7 @@ class UpdateSplitBillMemberView(generics.UpdateAPIView):
         )
 
 
+@extend_schema(tags=["transactions/expenses"])
 class EqualExpenseCreateView(generics.CreateAPIView):
     queryset = (
         Expense.objects.all()
@@ -247,6 +269,7 @@ class EqualExpenseCreateView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
 
+@extend_schema(tags=["transactions/expenses"])
 class CustomExpenseCreateView(generics.CreateAPIView):
     queryset = (
         Expense.objects.all()
@@ -257,6 +280,7 @@ class CustomExpenseCreateView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
 
+@extend_schema(tags=["transactions/expenses"])
 class PercentageExpenseCreateView(generics.CreateAPIView):
     queryset = (
         Expense.objects.all()
@@ -267,6 +291,7 @@ class PercentageExpenseCreateView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
 
+@extend_schema(tags=["transactions/expenses"])
 class ExpenseListView(generics.ListAPIView):
     serializer_class = ExpenseSerializer
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
@@ -280,6 +305,7 @@ class ExpenseListView(generics.ListAPIView):
         )
 
 
+@extend_schema(tags=["transactions/expenses"])
 class ExpenseDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = ExpenseSerializer
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
@@ -288,6 +314,7 @@ class ExpenseDetailView(generics.RetrieveDestroyAPIView):
         return Expense.objects.filter(split_bill__members=self.request.user)
 
 
+@extend_schema(tags=["transactions/expenses"])
 class ExpenseUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
     serializer_class = ExpenseUpdateSerializer
@@ -305,6 +332,27 @@ class ExpenseUpdateView(APIView):
         return Response(
             {"detail": "Expense updated successfully."}, status=status.HTTP_200_OK
         )
+
+
+@extend_schema(tags=["transactions/money_given"])
+class MoneyGivenCreateView(generics.ListCreateAPIView):
+    serializer_class = MoneyGivenSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
+
+    def get_queryset(self):
+        user = self.request.user
+        return MoneyGiven.objects.filter(split_bill__members=user).select_related(
+            "given_by", "given_to", "split_bill"
+        )
+
+
+@extend_schema(tags=["transactions/money_given"])
+class MoneyGivenDetailView(generics.RetrieveDestroyAPIView):
+    serializer_class = MoneyGivenSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
+
+    def get_queryset(self):
+        return Expense.objects.filter(split_bill__members=self.request.user)
 
 
 class AddMemberView(APIView):

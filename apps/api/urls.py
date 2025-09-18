@@ -1,6 +1,8 @@
 from django.urls import path, include
 from .views import (
     ExpenseUpdateView,
+    MoneyGivenCreateView,
+    MoneyGivenDetailView,
     UpdateSplitBillMemberView,
     UserRegister,
     ResetPassword,
@@ -75,5 +77,7 @@ urlpatterns = [
     path(
         "expenses/<int:pk>/update", ExpenseUpdateView.as_view(), name="expense-detail"
     ),
+    path("money-given/", MoneyGivenCreateView.as_view(), name="money-given"),
+    path("money-given/<int:pk>/", MoneyGivenDetailView.as_view(), name="money-given"),
     path("comments/", CommentCreateView.as_view(), name="comment-create"),
 ]

@@ -2,6 +2,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from rest_framework.validators import UniqueValidator
 from .models import (
+    MoneyGiven,
     PendingInvitation,
     SplitBill,
     Expense,
@@ -114,7 +115,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "password"]
+        fields = ["id", "username", "email"]
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -135,22 +136,29 @@ class CommentSerializer(serializers.ModelSerializer):
 
 
 class ExpenseAssignmentSerializer(serializers.ModelSerializer):
-    user = serializers.SerializerMethodField()
+    member = serializers.SerializerMethodField()
+    share_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
 
     class Meta:
         model = ExpenseAssignment
-        fields = ["user", "share_amount"]
+        fields = ["member", "share_amount"]
 
-    def get_user(self, obj):
-        if obj.user:
+    def get_member(self, obj):
+        member = obj.split_bill_member
+        if member:
             return {
-                "id": obj.user.id,
-                "username": obj.user.username,
-                "email": obj.user.email,
+                "id": member.id,
+                "alias": member.alias,
+                "email": member.email,
+                "user": {
+                    "id": member.user.id,
+                    "username": member.user.username,
+                    "email": member.user.email,
+                }
+                if member.user
+                else None,
             }
-        elif obj.split_bill_member:
-            return {"alias": obj.split_bill_member.display_name()}
-        return {"alias": "Unknown"}
+        return None
 
 
 class BaseExpenseSerializer(serializers.ModelSerializer):
@@ -390,12 +398,72 @@ class ExpenseSerializer(serializers.ModelSerializer):
         ]
 
     def get_paid_by(self, obj):
-        member = getattr(obj, "paid_by_member", None)
-        if member:
-            name = getattr(member.user, "username", None) or getattr(
-                member, "email", "Unregistered"
-            )
-            return {"id": member.id, "name": name}
+        if obj.paid_by:
+            member = obj.split_bill.splitbill_members.filter(user=obj.paid_by).first()
+            if member:
+                return {
+                    "id": member.id,
+                    "alias": member.alias,
+                    "user": {
+                        "id": member.user.id,
+                        "username": member.user.username,
+                        "email": member.user.email,
+                    }
+                    if member.user
+                    else None,
+                }
+        return None
+
+
+class MoneyGivenSerializer(serializers.ModelSerializer):
+    given_to = serializers.PrimaryKeyRelatedField(
+        queryset=SplitBillMember.objects.all()
+    )
+    given_by = serializers.PrimaryKeyRelatedField(
+        queryset=SplitBillMember.objects.all(), required=False, allow_null=True
+    )
+    split_bill = serializers.PrimaryKeyRelatedField(queryset=SplitBill.objects.all())
+
+    class Meta:
+        model = MoneyGiven
+        fields = ["id", "title", "amount", "given_by", "given_to", "split_bill", "date"]
+        read_only_fields = ["id"]
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and not validated_data.get("given_by"):
+            user_member = SplitBillMember.objects.filter(
+                split_bill=validated_data["split_bill"], user=request.user
+            ).first()
+            validated_data["given_by"] = user_member
+
+        return super().create(validated_data)
+
+
+class MoneyGivenDetailSerializer(serializers.ModelSerializer):
+    given_by = serializers.SerializerMethodField()
+    given_to = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MoneyGiven
+        fields = ["id", "title", "amount", "given_by", "given_to", "date"]
+
+    def get_given_by(self, obj):
+        if obj.given_by:
+            return {
+                "id": obj.given_by.id,
+                "alias": obj.given_by.alias,  # always alias
+                "username": obj.given_by.user.username if obj.given_by.user else None,
+            }
+        return None
+
+    def get_given_to(self, obj):
+        if obj.given_to:
+            return {
+                "id": obj.given_to.id,
+                "alias": obj.given_to.alias,  # always alias
+                "username": obj.given_to.user.username if obj.given_to.user else None,
+            }
         return None
 
 
@@ -426,6 +494,7 @@ class SplitBillSerializer(serializers.ModelSerializer):
         required=False,
     )
     expenses = ExpenseSerializer(many=True, read_only=True)
+    money_given = serializers.SerializerMethodField()
     comments = serializers.SerializerMethodField()
     balances = serializers.SerializerMethodField()
 
@@ -440,6 +509,7 @@ class SplitBillSerializer(serializers.ModelSerializer):
             "members",
             "member_inputs",
             "expenses",
+            "money_given",
             "comments",
             "balances",
             "active",
@@ -522,47 +592,90 @@ class SplitBillSerializer(serializers.ModelSerializer):
             print(f"[COMMENTS ERROR] {e}")
             return []
 
+    def get_money_given(self, obj):
+        money_qs = obj.money_given.select_related("given_by", "given_to")
+        return MoneyGivenDetailSerializer(money_qs, many=True).data
+
     def get_balances(self, obj):
         balances = {}
-        try:
-            assignments = ExpenseAssignment.objects.filter(
-                expense__split_bill=obj
-            ).select_related("expense", "user")
+        members = obj.splitbill_members.all()
 
-            for a in assignments:
-                try:
-                    payer = getattr(a.expense, "paid_by", None)
-                    debtor = a.user or a.split_bill_member
-                    amount = a.share_amount
+        # Initialize balances by alias
+        for member in members:
+            balances[member.alias] = {}
 
-                    if not amount or not debtor:
-                        continue
+        # Process expense assignments
+        assignments = ExpenseAssignment.objects.filter(
+            expense__split_bill=obj
+        ).select_related("expense", "split_bill_member")
 
-                    debtor_name = getattr(debtor, "username", None) or getattr(
-                        debtor, "alias", "Unknown"
+        for a in assignments:
+            debtor = a.split_bill_member
+            payer_user = a.expense.paid_by  # this is a User
+
+            if not debtor or not payer_user or not a.share_amount:
+                continue
+
+            payer_member = obj.splitbill_members.filter(user=payer_user).first()
+            if not payer_member:
+                continue
+
+            debtor_name = debtor.alias
+            payer_name = payer_member.alias
+
+            if debtor_name == payer_name:
+                continue
+
+            balances.setdefault(debtor_name, {})
+            balances[debtor_name].setdefault(payer_name, Decimal("0.00"))
+            balances[debtor_name][payer_name] += a.share_amount
+
+        # Process money given
+        for mg in obj.money_given.select_related("given_by", "given_to"):
+            giver = mg.given_by
+            receiver = mg.given_to
+            amount = Decimal(mg.amount)
+
+            if not giver or not receiver or giver.alias == receiver.alias:
+                continue
+
+            giver_name = giver.alias
+            receiver_name = receiver.alias
+
+            # Receiver owes giver
+            balances.setdefault(receiver_name, {})
+            balances[receiver_name].setdefault(giver_name, Decimal("0.00"))
+            balances[receiver_name][giver_name] += amount
+
+        # Simplify balances (netting debts)
+        cleaned_balances = []
+        all_members = list(balances.keys())
+
+        for debtor in all_members:
+            for creditor in list(balances[debtor].keys()):
+                if creditor in balances and debtor in balances[creditor]:
+                    net = balances[debtor][creditor] - balances[creditor].get(
+                        debtor, Decimal("0.00")
                     )
-                    payer_name = (
-                        getattr(payer, "username", None)
-                        or getattr(a.expense, "paid_by_member", None)
-                        and getattr(a.expense.paid_by_member, "alias", "Unregistered")
-                        or "Unregistered"
+                    if net > 0:
+                        balances[debtor][creditor] = net
+                        del balances[creditor][debtor]
+                    else:
+                        balances[creditor][debtor] = -net
+                        del balances[debtor][creditor]
+
+        for debtor, creditors in balances.items():
+            for creditor, amount in creditors.items():
+                if amount > 0:
+                    cleaned_balances.append(
+                        {
+                            "from": debtor,
+                            "to": creditor,
+                            "amount": str(amount.quantize(Decimal("0.01"))),
+                        }
                     )
 
-                    balances.setdefault(debtor_name, {})
-                    balances[debtor_name].setdefault(payer_name, Decimal("0.00"))
-                    balances[debtor_name][payer_name] += amount
-
-                except Exception as inner_e:
-                    print(f"[BALANCE ITEM ERROR] {inner_e}")
-                    continue
-
-        except Exception as e:
-            print(f"[BALANCES ERROR] {e}")
-
-        return {
-            debtor: {creditor: str(amount) for creditor, amount in creditors.items()}
-            for debtor, creditors in balances.items()
-        }
+        return cleaned_balances
 
 
 class SplitBillMemberUpdateSerializer(serializers.ModelSerializer):

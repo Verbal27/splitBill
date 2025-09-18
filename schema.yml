@@ -182,6 +182,125 @@ paths:
               schema:
                 $ref: '#/components/schemas/PercentageExpense'
           description: ''
+  /apps/api/money-given/:
+    get:
+      operationId: money_given_list
+      tags:
+      - money-given
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MoneyGiven'
+          description: ''
+    post:
+      operationId: money_given_create
+      tags:
+      - money-given
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoneyGiven'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoneyGiven'
+          description: ''
+  /apps/api/money-given/{id}/:
+    get:
+      operationId: money_given_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - money-given
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoneyGiven'
+          description: ''
+    put:
+      operationId: money_given_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - money-given
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoneyGiven'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoneyGiven'
+          description: ''
+    patch:
+      operationId: money_given_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - money-given
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMoneyGiven'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoneyGiven'
+          description: ''
+    delete:
+      operationId: money_given_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - money-given
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
   /apps/api/register/:
     post:
       operationId: register_create
@@ -207,7 +326,7 @@ paths:
     post:
       operationId: reset_password_create
       tags:
-      - reset-password
+      - reset_password
       requestBody:
         content:
           application/json:
@@ -228,7 +347,7 @@ paths:
     post:
       operationId: reset_password_complete_create
       tags:
-      - reset-password-complete
+      - reset_password
       requestBody:
         content:
           application/json:
@@ -260,7 +379,7 @@ paths:
           type: string
         required: true
       tags:
-      - reset-password-confirm
+      - reset_password
       security:
       - jwtAuth: []
       - {}
@@ -428,7 +547,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RemoveMember'
-        required: true
       security:
       - jwtAuth: []
       responses:
@@ -541,7 +659,7 @@ paths:
           description: ''
   /apps/api/users/:
     get:
-      operationId: users_list
+      operationId: users_retrieve
       tags:
       - users
       security:
@@ -551,50 +669,9 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/UserUpdate'
-          description: ''
-    post:
-      operationId: users_create
-      tags:
-      - users
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UserUpdate'
-        required: true
-      security:
-      - jwtAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserUpdate'
+                $ref: '#/components/schemas/User'
           description: ''
   /apps/api/users/{id}/:
-    get:
-      operationId: users_retrieve
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        description: A unique integer value identifying this user.
-        required: true
-      tags:
-      - users
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserUpdate'
-          description: ''
     put:
       operationId: users_update
       parameters:
@@ -602,7 +679,6 @@ paths:
         name: id
         schema:
           type: integer
-        description: A unique integer value identifying this user.
         required: true
       tags:
       - users
@@ -628,7 +704,6 @@ paths:
         name: id
         schema:
           type: integer
-        description: A unique integer value identifying this user.
         required: true
       tags:
       - users
@@ -646,22 +721,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/UserUpdate'
           description: ''
-    delete:
-      operationId: users_destroy
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        description: A unique integer value identifying this user.
-        required: true
-      tags:
-      - users
-      security:
-      - jwtAuth: []
-      responses:
-        '204':
-          description: No response body
 components:
   schemas:
     AddMember:
@@ -711,9 +770,9 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-        paid_by:
+        paid_by_member:
           type: integer
-          nullable: true
+          writeOnly: true
         assignments:
           type: object
           additionalProperties:
@@ -733,6 +792,7 @@ components:
       - amount
       - assignments
       - id
+      - paid_by_member
       - split_bill
       - split_type
       - title
@@ -749,9 +809,9 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-        paid_by:
+        paid_by_member:
           type: integer
-          nullable: true
+          writeOnly: true
         assignments:
           type: array
           items:
@@ -765,11 +825,11 @@ components:
         split_type:
           type: string
           readOnly: true
-          default: equal
       required:
       - amount
       - assignments
       - id
+      - paid_by_member
       - split_bill
       - split_type
       - title
@@ -789,11 +849,12 @@ components:
         split_type:
           $ref: '#/components/schemas/SplitTypeEnum'
         paid_by:
-          allOf:
-          - $ref: '#/components/schemas/User'
+          type: string
           readOnly: true
         assignments:
-          type: string
+          type: array
+          items:
+            $ref: '#/components/schemas/ExpenseAssignment'
           readOnly: true
         date:
           type: string
@@ -805,6 +866,19 @@ components:
       - paid_by
       - split_type
       - title
+    ExpenseAssignment:
+      type: object
+      properties:
+        member:
+          type: string
+          readOnly: true
+        share_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+      required:
+      - member
+      - share_amount
     ExpenseUpdate:
       type: object
       properties:
@@ -814,12 +888,64 @@ components:
       required:
       - assignments
       - split_type
+    MoneyGiven:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        given_by:
+          type: integer
+          nullable: true
+        given_to:
+          type: integer
+        split_bill:
+          type: integer
+        date:
+          type: string
+          format: date
+      required:
+      - amount
+      - given_to
+      - id
+      - split_bill
+      - title
     PatchedExpenseUpdate:
       type: object
       properties:
         split_type:
           $ref: '#/components/schemas/SplitTypeEnum'
         assignments: {}
+    PatchedMoneyGiven:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        given_by:
+          type: integer
+          nullable: true
+        given_to:
+          type: integer
+        split_bill:
+          type: integer
+        date:
+          type: string
+          format: date
     PatchedSplitBill:
       type: object
       properties:
@@ -851,17 +977,16 @@ components:
             type: object
             additionalProperties: {}
           writeOnly: true
-          description: 'List of { ''email'': str (optional), ''alias'': str (optional)
-            }'
         expenses:
           type: array
           items:
             $ref: '#/components/schemas/Expense'
           readOnly: true
+        money_given:
+          type: string
+          readOnly: true
         comments:
-          type: array
-          items:
-            $ref: '#/components/schemas/Comment'
+          type: string
           readOnly: true
         balances:
           type: string
@@ -913,9 +1038,9 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
-        paid_by:
+        paid_by_member:
           type: integer
-          nullable: true
+          writeOnly: true
         assignments:
           type: object
           additionalProperties:
@@ -935,6 +1060,7 @@ components:
       - amount
       - assignments
       - id
+      - paid_by_member
       - split_bill
       - split_type
       - title
@@ -955,6 +1081,7 @@ components:
         password:
           type: string
           writeOnly: true
+          minLength: 8
       required:
       - password
       - username
@@ -963,8 +1090,9 @@ components:
       properties:
         alias:
           type: string
-      required:
-      - alias
+        email:
+          type: string
+          format: email
     ResetPassword:
       type: object
       properties:
@@ -1019,17 +1147,16 @@ components:
             type: object
             additionalProperties: {}
           writeOnly: true
-          description: 'List of { ''email'': str (optional), ''alias'': str (optional)
-            }'
         expenses:
           type: array
           items:
             $ref: '#/components/schemas/Expense'
           readOnly: true
+        money_given:
+          type: string
+          readOnly: true
         comments:
-          type: array
-          items:
-            $ref: '#/components/schemas/Comment'
+          type: string
           readOnly: true
         balances:
           type: string
@@ -1044,6 +1171,7 @@ components:
       - expenses
       - id
       - members
+      - money_given
       - owner
       - title
     SplitBillMember:
@@ -1053,9 +1181,8 @@ components:
           type: integer
           readOnly: true
         user:
-          type: integer
+          type: string
           readOnly: true
-          nullable: true
         email:
           type: string
           format: email
@@ -1142,9 +1269,8 @@ components:
         email:
           type: string
           format: email
-          title: Email address
-          maxLength: 254
       required:
+      - email
       - id
       - username
     UserUpdate:
