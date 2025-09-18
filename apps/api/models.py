@@ -198,3 +198,27 @@ class Comment(models.Model):
 
     def __str__(self):
         return f"Comment by {self.author.username} on {self.split_bill.title}"
+
+
+class Balance(models.Model):
+    split_bill = models.ForeignKey(
+        SplitBill, related_name="balances", on_delete=models.CASCADE
+    )
+    from_member = models.ForeignKey(
+        SplitBillMember,
+        related_name="balances_from",
+        on_delete=models.CASCADE,
+    )
+    to_member = models.ForeignKey(
+        SplitBillMember,
+        related_name="balances_to",
+        on_delete=models.CASCADE,
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ("split_bill", "from_member", "to_member")
+
+    def __str__(self):
+        return f"{self.from_member.alias} → {self.to_member.alias}: {self.amount}"

@@ -1,4 +1,5 @@
 from .serializers import (
+    BalanceSerializer,
     ExpenseUpdateSerializer,
     MoneyGivenSerializer,
     RegisterSerializer,
@@ -17,6 +18,7 @@ from .serializers import (
     RemoveMemberSerializer,
 )
 from .models import (
+    Balance,
     PendingInvitation,
     SplitBill,
     Expense,
@@ -24,7 +26,12 @@ from .models import (
     SplitBillMember,
     MoneyGiven,
 )
-from .utils import IsSplitBillMember, IsSplitBillOwner, send_mailgun_email
+from .utils import (
+    IsSplitBillMember,
+    IsSplitBillOwner,
+    send_mailgun_email,
+    update_or_create_balances,
+)
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import generics, permissions, status
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
@@ -268,6 +275,10 @@ class EqualExpenseCreateView(generics.CreateAPIView):
     serializer_class = EqualExpenseSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def perform_create(self, serializer):
+        expense = serializer.save()
+        update_or_create_balances(expense.split_bill)
+
 
 @extend_schema(tags=["transactions/expenses"])
 class CustomExpenseCreateView(generics.CreateAPIView):
@@ -279,6 +290,10 @@ class CustomExpenseCreateView(generics.CreateAPIView):
     serializer_class = CustomExpenseSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def perform_create(self, serializer):
+        expense = serializer.save()
+        update_or_create_balances(expense.split_bill)
+
 
 @extend_schema(tags=["transactions/expenses"])
 class PercentageExpenseCreateView(generics.CreateAPIView):
@@ -289,6 +304,10 @@ class PercentageExpenseCreateView(generics.CreateAPIView):
     )
     serializer_class = PercentageExpenseSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        expense = serializer.save()
+        update_or_create_balances(expense.split_bill)
 
 
 @extend_schema(tags=["transactions/expenses"])
@@ -319,25 +338,24 @@ class ExpenseUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
     serializer_class = ExpenseUpdateSerializer
 
-    def get_object(self):
-        expense = get_object_or_404(Expense, pk=self.kwargs["pk"])
-        self.check_object_permissions(self.request, expense)
-        return expense
-
-    def patch(self, request, *args, **kwargs):
-        expense = self.get_object()
+    def patch(self, request, pk):
+        expense = get_object_or_404(Expense, pk=pk)
+        self.check_object_permissions(request, expense)
         serializer = self.serializer_class(expense, data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(
-            {"detail": "Expense updated successfully."}, status=status.HTTP_200_OK
-        )
+        update_or_create_balances(expense.split_bill)
+        return Response({"detail": "Expense updated successfully."}, status=200)
 
 
 @extend_schema(tags=["transactions/money_given"])
 class MoneyGivenCreateView(generics.ListCreateAPIView):
     serializer_class = MoneyGivenSerializer
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
+
+    def perform_create(self, serializer):
+        expense = serializer.save()
+        update_or_create_balances(expense.split_bill)
 
     def get_queryset(self):
         user = self.request.user
@@ -352,7 +370,7 @@ class MoneyGivenDetailView(generics.RetrieveDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
 
     def get_queryset(self):
-        return Expense.objects.filter(split_bill__members=self.request.user)
+        return MoneyGiven.objects.filter(split_bill__members=self.request.user)
 
 
 class AddMemberView(APIView):
@@ -441,3 +459,45 @@ class CommentCreateView(generics.CreateAPIView):
         ):
             raise PermissionDenied("You must be a member of the splitbill to comment.")
         serializer.save(author=self.request.user)
+
+
+class BalanceListView(generics.ListAPIView):
+    serializer_class = BalanceSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
+
+    @extend_schema(tags=["balances"])
+    def get_queryset(self):
+        split_bill_id = self.kwargs["split_bill_id"]
+        return Balance.objects.filter(split_bill_id=split_bill_id, active=True)
+
+
+class BalanceSettleView(generics.UpdateAPIView):
+    serializer_class = BalanceSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
+
+    def get_queryset(self):
+        split_bill_id = self.kwargs.get("split_bill_id")
+        return Balance.objects.filter(split_bill_id=split_bill_id)
+
+    def get_object(self):
+        balance_id = self.kwargs.get("balance_id")
+        if not balance_id:
+            raise ValueError("Balance ID not provided in URL.")
+        balance = get_object_or_404(self.get_queryset(), pk=balance_id)
+        return balance
+
+    def patch(self, request, *args, **kwargs):
+        try:
+            balance = self.get_object()
+            active = request.data.get("active", False)
+            balance.active = active
+            balance.save()
+            return Response({"detail": "Balance settled."}, status=status.HTTP_200_OK)
+        except Exception as e:
+            import traceback
+
+            print("[BALANCE PATCH ERROR]", traceback.format_exc())
+            return Response(
+                {"detail": f"Internal server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

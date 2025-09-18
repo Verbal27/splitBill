@@ -1,5 +1,7 @@
 from django.urls import path, include
 from .views import (
+    BalanceListView,
+    BalanceSettleView,
     ExpenseUpdateView,
     MoneyGivenCreateView,
     MoneyGivenDetailView,
@@ -64,6 +66,16 @@ urlpatterns = [
         "split-bill/<int:split_bill_id>/members/<int:pk>/update/",
         UpdateSplitBillMemberView.as_view(),
         name="splitbill-member-update",
+    ),
+    path(
+        "split-bill/<int:split_bill_id>/balances/",
+        BalanceListView.as_view(),
+        name="balance-list",
+    ),
+    path(
+        "split-bill/<int:split_bill_id>/balances/<int:balance_id>/settle/",
+        BalanceSettleView.as_view(),
+        name="balance-settle",
     ),
     path("expenses/", ExpenseListView.as_view(), name="expense-list"),
     path("expenses/equal", EqualExpenseCreateView.as_view(), name="expense-equal"),

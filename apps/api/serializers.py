@@ -2,6 +2,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from rest_framework.validators import UniqueValidator
 from .models import (
+    Balance,
     MoneyGiven,
     PendingInvitation,
     SplitBill,
@@ -13,8 +14,7 @@ from .models import (
 from django.utils.encoding import force_bytes
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .utils import send_mailgun_email
-from django.db import transaction
+from .utils import send_mailgun_email, update_or_create_balances
 from django.urls import reverse
 from decimal import Decimal
 
@@ -483,20 +483,27 @@ class SplitBillMemberSerializer(serializers.ModelSerializer):
         return None
 
 
+class BalanceSerializer(serializers.ModelSerializer):
+    from_member = serializers.CharField(source="from_member.alias", read_only=True)
+    to_member = serializers.CharField(source="to_member.alias", read_only=True)
+
+    class Meta:
+        model = Balance
+        fields = ["id", "from_member", "to_member", "amount", "active"]
+
+
 class SplitBillSerializer(serializers.ModelSerializer):
     owner = UserSerializer(read_only=True)
     members = SplitBillMemberSerializer(
         many=True, read_only=True, source="splitbill_members"
     )
     member_inputs = serializers.ListField(
-        child=serializers.DictField(),
-        write_only=True,
-        required=False,
+        child=serializers.DictField(), write_only=True, required=False
     )
     expenses = ExpenseSerializer(many=True, read_only=True)
     money_given = serializers.SerializerMethodField()
     comments = serializers.SerializerMethodField()
-    balances = serializers.SerializerMethodField()
+    balances = BalanceSerializer(many=True, read_only=True)
 
     class Meta:
         model = SplitBill
@@ -517,165 +524,69 @@ class SplitBillSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get("request")
-        if not request:
-            raise serializers.ValidationError(
-                {"request": "Request context is required."}
-            )
-
         member_inputs = validated_data.pop("member_inputs", [])
 
-        try:
-            with transaction.atomic():
-                # Create the split bill
-                split_bill = SplitBill.objects.create(
-                    owner=request.user, **validated_data
+        split_bill = SplitBill.objects.create(owner=request.user, **validated_data)
+
+        owner_member = SplitBillMember.objects.create(
+            split_bill=split_bill, user=request.user, alias=request.user.username
+        )
+        split_bill.members.add(request.user)
+
+        for entry in member_inputs:
+            email = entry.get("email")
+            alias = entry.get("alias") or "Unknown"
+            user = None
+            if email:
+                user = SplitBillMember.objects.filter(email=email).first()
+                if not user:
+                    user = None
+
+            member = SplitBillMember.objects.create(
+                split_bill=split_bill, user=user, email=email, alias=alias
+            )
+            if user:
+                split_bill.members.add(user)
+            elif email:
+                PendingInvitation.objects.create(
+                    split_bill=split_bill, email=email, alias=alias
                 )
 
-                # Add the owner as a member
-                SplitBillMember.objects.create(
-                    split_bill=split_bill,
-                    user=request.user,
-                    alias=request.user.username,
-                )
-                split_bill.members.add(request.user)
-
-                # Process member_inputs
-                for entry in member_inputs:
-                    email = entry.get("email")
-                    alias = entry.get("alias") or "Unknown"
-                    user = User.objects.filter(email=email).first() if email else None
-
-                    # Create SplitBillMember
-                    member = SplitBillMember.objects.create(
-                        split_bill=split_bill,
-                        user=user,
-                        email=email,
-                        alias=alias,
+            if email and request:
+                try:
+                    invite_link = request.build_absolute_uri(
+                        reverse("split-bill-detail", kwargs={"pk": split_bill.pk})
                     )
+                    send_mailgun_email(
+                        "You've been invited to a SplitBill session!",
+                        f"Hi {alias}, join '{split_bill.title}' here: {invite_link}",
+                        email,
+                    )
+                except Exception as e:
+                    print(f"[EMAIL ERROR] {e}")
 
-                    if user:
-                        split_bill.members.add(user)
-                    elif email:
-                        # Create pending invitation for unregistered users
-                        PendingInvitation.objects.create(
-                            split_bill=split_bill,
-                            email=email,
-                            alias=alias,
-                        )
+        update_or_create_balances(split_bill)
 
-                    # Send invitation email
-                    if email:
-                        try:
-                            invite_link = request.build_absolute_uri(
-                                reverse(
-                                    "split-bill-detail", kwargs={"pk": split_bill.pk}
-                                )
-                            )
-                            send_mailgun_email(
-                                "You've been invited to a SplitBill session!",
-                                f"Hi {alias}, join '{split_bill.title}' here: {invite_link}",
-                                email,
-                            )
-                        except Exception as e:
-                            print(f"[EMAIL ERROR] {e}")
-
-            return split_bill
-
-        except Exception as e:
-            raise serializers.ValidationError({"detail": str(e)})
+        return split_bill
 
     def get_comments(self, obj):
-        try:
-            qs = obj.comments.all()
-            return CommentSerializer(qs, many=True).data
-        except Exception as e:
-            print(f"[COMMENTS ERROR] {e}")
-            return []
+        return CommentSerializer(obj.comments.all(), many=True).data
 
     def get_money_given(self, obj):
         money_qs = obj.money_given.select_related("given_by", "given_to")
         return MoneyGivenDetailSerializer(money_qs, many=True).data
 
     def get_balances(self, obj):
-        balances = {}
-        members = obj.splitbill_members.all()
-
-        # Initialize balances by alias
-        for member in members:
-            balances[member.alias] = {}
-
-        # Process expense assignments
-        assignments = ExpenseAssignment.objects.filter(
-            expense__split_bill=obj
-        ).select_related("expense", "split_bill_member")
-
-        for a in assignments:
-            debtor = a.split_bill_member
-            payer_user = a.expense.paid_by  # this is a User
-
-            if not debtor or not payer_user or not a.share_amount:
-                continue
-
-            payer_member = obj.splitbill_members.filter(user=payer_user).first()
-            if not payer_member:
-                continue
-
-            debtor_name = debtor.alias
-            payer_name = payer_member.alias
-
-            if debtor_name == payer_name:
-                continue
-
-            balances.setdefault(debtor_name, {})
-            balances[debtor_name].setdefault(payer_name, Decimal("0.00"))
-            balances[debtor_name][payer_name] += a.share_amount
-
-        # Process money given
-        for mg in obj.money_given.select_related("given_by", "given_to"):
-            giver = mg.given_by
-            receiver = mg.given_to
-            amount = Decimal(mg.amount)
-
-            if not giver or not receiver or giver.alias == receiver.alias:
-                continue
-
-            giver_name = giver.alias
-            receiver_name = receiver.alias
-
-            # Receiver owes giver
-            balances.setdefault(receiver_name, {})
-            balances[receiver_name].setdefault(giver_name, Decimal("0.00"))
-            balances[receiver_name][giver_name] += amount
-
-        # Simplify balances (netting debts)
-        cleaned_balances = []
-        all_members = list(balances.keys())
-
-        for debtor in all_members:
-            for creditor in list(balances[debtor].keys()):
-                if creditor in balances and debtor in balances[creditor]:
-                    net = balances[debtor][creditor] - balances[creditor].get(
-                        debtor, Decimal("0.00")
-                    )
-                    if net > 0:
-                        balances[debtor][creditor] = net
-                        del balances[creditor][debtor]
-                    else:
-                        balances[creditor][debtor] = -net
-                        del balances[debtor][creditor]
-
-        for debtor, creditors in balances.items():
-            for creditor, amount in creditors.items():
-                if amount > 0:
-                    cleaned_balances.append(
-                        {
-                            "from": debtor,
-                            "to": creditor,
-                            "amount": str(amount.quantize(Decimal("0.01"))),
-                        }
-                    )
-
-        return cleaned_balances
+        update_or_create_balances(obj)
+        active_balances = obj.balances.filter(active=True)
+        return [
+            {
+                "from": b.from_member.alias,
+                "to": b.to_member.alias,
+                "amount": str(b.amount),
+            }
+            for b in active_balances
+        ]
 
 
 class SplitBillMemberUpdateSerializer(serializers.ModelSerializer):
@@ -694,6 +605,7 @@ class SplitBillMemberUpdateSerializer(serializers.ModelSerializer):
             user = User.objects.filter(email=email).first()
             if user:
                 instance.user = user
+                instance.split_bill.members.add(user)
             else:
                 # Create or update a pending invitation
                 PendingInvitation.objects.update_or_create(
