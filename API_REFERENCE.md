@@ -1,8 +1,9 @@
 # SplitBill — API Reference
 
-**Base URL:** `https://splitbill-production.up.railway.app/apps/api`  
+**Base URL:** `http://localhost:8000` (development) — configure for production  
+**API prefix:** `/api/`  
 **Version:** 0.1.0  
-**Authentication:** JWT Bearer token (see [Authentication](#authentication))
+**Authentication:** JWT Bearer token — see [Authentication](#authentication)
 
 ---
 
@@ -19,12 +20,13 @@
 - [Schema & Docs](#schema--docs)
 - [Error Reference](#error-reference)
 - [Permissions Reference](#permissions-reference)
+- [Typical Flows](#typical-flows)
 
 ---
 
 ## Authentication
 
-### `POST /token/`
+### `POST /api/token/`
 
 Obtain a JWT access + refresh token pair.
 
@@ -46,11 +48,16 @@ Obtain a JWT access + refresh token pair.
 }
 ```
 
-**Token lifetimes:** access = 15 minutes, refresh = 1 day.
+Token lifetimes: **access = 15 minutes**, **refresh = 1 day**.
+
+Use the access token in the `Authorization` header on all protected requests:
+```
+Authorization: Bearer <access_token>
+```
 
 ---
 
-### `POST /token/refresh/`
+### `POST /api/token/refresh/`
 
 Exchange a refresh token for a new access token.
 
@@ -74,11 +81,11 @@ Exchange a refresh token for a new access token.
 
 ## Users
 
-### `POST /register/`
+### `POST /api/register/`
 
-Create a new user account. The user is created as inactive and an activation email is sent via Mailgun.
+Create a new user account. The account is created as **inactive** (`is_active=False`). An activation email is sent via Mailgun. The user cannot log in until activation.
 
-If the registered email matches any pending invitations (from existing split bills), those are resolved automatically — the user is linked to the corresponding `SplitBillMember` and added to the split bill.
+If the registered email matches any existing `PendingInvitation` records, those are resolved automatically — the new user is linked to the corresponding `SplitBillMember` entries and added to those split bills.
 
 **Auth:** Public
 
@@ -93,7 +100,7 @@ If the registered email matches any pending invitations (from existing split bil
 
 **Validation:**
 - `password` — minimum 8 characters
-- `email` — must be unique
+- `email` — must be unique across all users
 
 **Response `201`:**
 ```json
@@ -102,11 +109,20 @@ If the registered email matches any pending invitations (from existing split bil
 }
 ```
 
+**Response `500`** — returned if Mailgun fails (user is created but cannot activate):
+```json
+{
+  "detail": "Internal server error during registration.<error details>"
+}
+```
+
 ---
 
-### `GET /activate/{uidb64}/{token}/`
+### `GET /api/activate/{uidb64}/{token}/`
 
-Activate a user account using the link sent by email.
+Activate a user account from the link sent by email. Sets `is_active=True`.
+
+> ⚠️ **Known bug:** This view's `get()` method is missing the `request` parameter in its signature (`def get(self, uidb64, token)`). It will raise a `TypeError` at runtime when called.
 
 **Auth:** Public
 
@@ -117,7 +133,7 @@ Activate a user account using the link sent by email.
 }
 ```
 
-**Response `400`** — token invalid or expired:
+**Response `400`:**
 ```json
 {
   "detail": "Invalid or expired activation link."
@@ -126,9 +142,9 @@ Activate a user account using the link sent by email.
 
 ---
 
-### `POST /reset-password/`
+### `POST /api/reset-password/`
 
-Request a password reset email.
+Request a password reset email. Generates a signed token and sends it to the user's email address via Mailgun.
 
 **Auth:** Public
 
@@ -146,11 +162,20 @@ Request a password reset email.
 }
 ```
 
+**Response `400`** — email not found:
+```json
+{
+  "email": "User with this email does not exist."
+}
+```
+
 ---
 
-### `GET /reset-password-confirm/{uidb64}/{token}/`
+### `GET /api/reset-password-confirm/{uidb64}/{token}/`
 
-Validate a password reset token before displaying the reset form. Use the `uidb64` and `token` values from the link emailed to the user.
+Validate a password reset token before showing a reset form. Use the `uidb64` and `token` values from the emailed link.
+
+> ⚠️ **Known bug:** This view's `get()` method is missing the `request` parameter (`def get(self, uidb64, token)`). It will raise a `TypeError` at runtime.
 
 **Auth:** Public
 
@@ -161,9 +186,16 @@ Validate a password reset token before displaying the reset form. Use the `uidb6
 }
 ```
 
+**Response `400`:**
+```json
+{
+  "error": "Token is invalid or expired"
+}
+```
+
 ---
 
-### `POST /reset-password-complete/`
+### `POST /api/reset-password-complete/`
 
 Set a new password using a valid reset token.
 
@@ -178,6 +210,8 @@ Set a new password using a valid reset token.
 }
 ```
 
+**Validation:** `password` — minimum 8 characters
+
 **Response `200`:**
 ```json
 {
@@ -187,7 +221,7 @@ Set a new password using a valid reset token.
 
 ---
 
-### `GET /users/`
+### `GET /api/users/`
 
 Get the profile of the currently authenticated user.
 
@@ -204,13 +238,13 @@ Get the profile of the currently authenticated user.
 
 ---
 
-### `PATCH /users/{id}/`
+### `PATCH /api/users/{id}/`
 
-Update username, email, or password for the authenticated user.
+Update the authenticated user's username, email, or password. All fields are optional.
 
 **Auth:** JWT
 
-**Request body** (all fields optional):
+**Request body:**
 ```json
 {
   "username": "alice_new",
@@ -225,23 +259,23 @@ Update username, email, or password for the authenticated user.
 
 ## Split Bills
 
-A `SplitBill` is the top-level container for a shared expense group. The user who creates it becomes the **owner** and is automatically added as the first `SplitBillMember`.
+A `SplitBill` is the top-level container for a shared expense group. The user who creates it becomes the **owner** and is automatically added as the first `SplitBillMember` (with their username as the alias).
 
 ---
 
-### `GET /split-bill/`
+### `GET /api/split-bill/`
 
 List all split bills the authenticated user is a member of.
 
 **Auth:** JWT
 
-**Response `200`:** Array of split bill objects (see structure below).
+**Response `200`:** Array of split bill objects.
 
 ---
 
-### `POST /split-bill/`
+### `POST /api/split-bill/`
 
-Create a new split bill.
+Create a new split bill. The creator is added as owner and first member automatically.
 
 **Auth:** JWT
 
@@ -257,18 +291,19 @@ Create a new split bill.
 }
 ```
 
-- `member_inputs` is optional. Each entry may have an `alias`, an `email`, or both.
-- If `email` matches a registered user → the user is linked immediately.
-- If `email` is unknown → a `PendingInvitation` is created and an invite email is sent.
-- The authenticated user is always added as a member with their username as alias.
+- `currency` — 3-character code (e.g. `"EUR"`, `"USD"`)
+- `member_inputs` — optional array of members to add on creation. Each entry may include `alias`, `email`, or both.
+  - If `email` matches a registered user → linked immediately
+  - If `email` is unknown → a `PendingInvitation` is created and an invite email is sent
+  - If only `alias` is provided → offline member, no invitation sent
 
 **Response `201`:** Full split bill object (see structure below).
 
 ---
 
-### `GET /split-bill/{id}/`
+### `GET /api/split-bill/{id}/`
 
-Retrieve full details of a split bill including expenses, money given, comments, and balances.
+Retrieve full details of a split bill, including nested expenses, money given, comments, and active balances.
 
 **Auth:** JWT + Member
 
@@ -299,9 +334,9 @@ Retrieve full details of a split bill including expenses, money given, comments,
       "user": null
     }
   ],
-  "expenses": [ /* see Expense object */ ],
-  "money_given": [ /* see MoneyGiven object */ ],
-  "comments": [ /* see Comment object */ ],
+  "expenses": [ ],
+  "money_given": [ ],
+  "comments": [ ],
   "balances": [
     { "from": "Bob", "to": "alice", "amount": "45.00" }
   ]
@@ -310,9 +345,9 @@ Retrieve full details of a split bill including expenses, money given, comments,
 
 ---
 
-### `PATCH /split-bill/{id}/`
+### `PATCH /api/split-bill/{id}/`
 
-Update a split bill's title, currency, or active status.
+Update a split bill's `title`, `currency`, or `active` flag.
 
 **Auth:** JWT + Member
 
@@ -329,11 +364,11 @@ Update a split bill's title, currency, or active status.
 
 ---
 
-### `DELETE /split-bill/{id}/`
+### `DELETE /api/split-bill/{id}/`
 
-Delete a split bill and all its related data.
+Delete the split bill and all cascading data (expenses, members, balances, comments).
 
-**Auth:** JWT + Member (owner in practice due to cascading)
+**Auth:** JWT + Member
 
 **Response `204`:** No content.
 
@@ -341,7 +376,7 @@ Delete a split bill and all its related data.
 
 ## Members
 
-### `POST /split-bill/{id}/add-member/`
+### `POST /api/split-bill/{id}/add-member/`
 
 Add a new member to a split bill.
 
@@ -356,8 +391,8 @@ Add a new member to a split bill.
 ```
 
 - `alias` is required.
-- `email` is optional. Same resolution logic as `member_inputs` on creation.
-- If the member (same alias + email combination) already exists, the existing record is returned without duplication.
+- `email` is optional. Resolution follows the same logic as `member_inputs` on creation.
+- If the exact combination of `alias` + `email` already exists on this split bill, the existing member is returned without duplication.
 
 **Response `201`:**
 ```json
@@ -374,9 +409,9 @@ Add a new member to a split bill.
 
 ---
 
-### `POST /split-bill/{id}/remove-member/`
+### `POST /api/split-bill/{id}/remove-member/`
 
-Remove a member from a split bill by alias or email.
+Remove a member by alias and/or email. At least one of `alias` or `email` is required. If both are provided, both conditions must match.
 
 **Auth:** JWT + Owner
 
@@ -387,8 +422,6 @@ Remove a member from a split bill by alias or email.
 }
 ```
 
-At least one of `alias` or `email` is required. If both are provided, both conditions must match.
-
 **Response `200`:**
 ```json
 {
@@ -396,11 +429,18 @@ At least one of `alias` or `email` is required. If both are provided, both condi
 }
 ```
 
+**Response `404`:**
+```json
+{
+  "detail": "No member found with the provided alias/email."
+}
+```
+
 ---
 
-### `PATCH /split-bill/{split_bill_id}/members/{id}/update/`
+### `PATCH /api/split-bill/{split_bill_id}/members/{id}/update/`
 
-Update a member's alias or email.
+Update a member's `alias` or `email`.
 
 **Auth:** JWT + Owner
 
@@ -412,8 +452,8 @@ Update a member's alias or email.
 }
 ```
 
-- If the email matches a registered user, they are linked and added to `split_bill.members`.
-- If the email is unregistered, a `PendingInvitation` is created and an invite email is sent.
+- If the new `email` matches a registered user → the user is linked and added to `split_bill.members`
+- If unregistered → a `PendingInvitation` is created or updated, and an invite email is sent
 
 **Response `200`:** Updated `SplitBillMember` object.
 
@@ -421,28 +461,28 @@ Update a member's alias or email.
 
 ## Expenses
 
-Expenses belong to a split bill and have a `split_type` that determines how the cost is distributed. Three creation endpoints exist — one per strategy. After every create or update, balances are automatically recalculated.
+Expenses belong to a split bill and carry a `split_type` that determines cost distribution. Three creation endpoints exist — one per strategy. After every create or update, balances are automatically recalculated for the parent split bill.
 
-All expense creation endpoints share these common fields:
+All three creation endpoints share these common fields:
 
-| Field | Type | Description |
+| Field | Type | Notes |
 |---|---|---|
 | `title` | string | Expense label |
 | `amount` | decimal | Total cost |
-| `paid_by_member` | integer | ID of the `SplitBillMember` who paid |
+| `paid_by_member` | integer | `SplitBillMember` ID of who paid — must be a registered user |
 | `split_bill` | integer | ID of the parent `SplitBill` |
-| `date` | date (optional) | Defaults to today |
-| `assignments` | varies | See per-endpoint definition |
+| `date` | date | Optional — defaults to today |
+| `assignments` | varies | Format depends on split type (see below) |
 
 ---
 
-### `POST /expenses/equal`
+### `POST /api/expenses/equal/`
 
 Create an expense split equally among selected members.
 
-**Auth:** JWT
+Each participant's share = `amount ÷ number_of_participants`, rounded to 2 decimal places.
 
-Each participant's share = `amount / number_of_participants`, rounded to 2 decimal places.
+**Auth:** JWT
 
 **Request body:**
 ```json
@@ -461,13 +501,13 @@ Each participant's share = `amount / number_of_participants`, rounded to 2 decim
 
 ---
 
-### `POST /expenses/custom`
+### `POST /api/expenses/custom/`
 
 Create an expense with explicit per-member amounts.
 
-**Auth:** JWT
-
 The sum of all assignment values must equal `amount` (±0.01 tolerance).
+
+**Auth:** JWT
 
 **Request body:**
 ```json
@@ -484,19 +524,19 @@ The sum of all assignment values must equal `amount` (±0.01 tolerance).
 }
 ```
 
-`assignments` — object mapping `SplitBillMember` ID (as string key) → amount owed.
+`assignments` — object mapping `SplitBillMember` ID (string key) → amount owed.
 
 **Response `201`:** Created expense object.
 
 ---
 
-### `POST /expenses/percentage`
+### `POST /api/expenses/percentage/`
 
-Create an expense split by percentages.
+Create an expense split by percentage.
+
+All percentages must sum to 100 (±0.01 tolerance). Each share is computed as `amount × pct ÷ 100`.
 
 **Auth:** JWT
-
-All percentages must sum to 100 (±0.01 tolerance). Each share is computed as `amount × pct / 100`.
 
 **Request body:**
 ```json
@@ -513,20 +553,19 @@ All percentages must sum to 100 (±0.01 tolerance). Each share is computed as `a
 }
 ```
 
-`assignments` — object mapping `SplitBillMember` ID (as string key) → percentage.
+`assignments` — object mapping `SplitBillMember` ID (string key) → percentage.
 
 **Response `201`:** Created expense object.
 
 ---
 
-### `GET /expenses/`
+### `GET /api/expenses/`
 
 List all expenses across all split bills the authenticated user belongs to.
 
 **Auth:** JWT
 
-**Response `200`:** Array of expense objects.
-
+**Response `200`:**
 ```json
 [
   {
@@ -538,12 +577,18 @@ List all expenses across all split bills the authenticated user belongs to.
     "paid_by": {
       "id": 1,
       "alias": "alice",
-      "user": { "id": 1, "username": "alice", "email": "alice@example.com" }
+      "user": {
+        "id": 1,
+        "username": "alice",
+        "email": "alice@example.com"
+      }
     },
     "assignments": [
       {
         "member": {
-          "id": 1, "alias": "alice", "email": "alice@example.com",
+          "id": 1,
+          "alias": "alice",
+          "email": "alice@example.com",
           "user": { "id": 1, "username": "alice", "email": "alice@example.com" }
         },
         "share_amount": "30.00"
@@ -555,9 +600,9 @@ List all expenses across all split bills the authenticated user belongs to.
 
 ---
 
-### `GET /expenses/{id}/`
+### `GET /api/expenses/{id}/`
 
-Retrieve a single expense with all assignment details.
+Retrieve a single expense with full assignment details.
 
 **Auth:** JWT + Member
 
@@ -565,7 +610,7 @@ Retrieve a single expense with all assignment details.
 
 ---
 
-### `DELETE /expenses/{id}/`
+### `DELETE /api/expenses/{id}/`
 
 Delete an expense.
 
@@ -575,13 +620,13 @@ Delete an expense.
 
 ---
 
-### `PATCH /expenses/{id}/update`
+### `PATCH /api/expenses/{id}/update/`
 
-Change the split type and reassign shares for an existing expense. All previous `ExpenseAssignment` records are deleted and recreated. The expense `amount` is not changed.
+Change the split type and reassign shares for an existing expense. All previous `ExpenseAssignment` records are deleted and recreated. The expense `amount` is not modified.
 
 **Auth:** JWT + Member
 
-**Request body (equal):**
+**Request body — equal:**
 ```json
 {
   "split_type": "equal",
@@ -589,7 +634,7 @@ Change the split type and reassign shares for an existing expense. All previous 
 }
 ```
 
-**Request body (custom):**
+**Request body — custom:**
 ```json
 {
   "split_type": "custom",
@@ -597,7 +642,7 @@ Change the split type and reassign shares for an existing expense. All previous 
 }
 ```
 
-**Request body (percentage):**
+**Request body — percentage:**
 ```json
 {
   "split_type": "percentage",
@@ -616,11 +661,11 @@ Change the split type and reassign shares for an existing expense. All previous 
 
 ## Money Given
 
-`MoneyGiven` records a direct money transfer between two members — typically used to settle a computed balance outside the app. After recording, balances are recalculated.
+`MoneyGiven` records a direct payment from one member to another — typically used to settle a balance. Balances are recalculated automatically after recording.
 
 ---
 
-### `GET /money-given/`
+### `GET /api/money-given/`
 
 List all money transfers across the user's split bills.
 
@@ -642,9 +687,9 @@ List all money transfers across the user's split bills.
 
 ---
 
-### `POST /money-given/`
+### `POST /api/money-given/`
 
-Record a direct payment from one member to another.
+Record a direct payment between two members.
 
 **Auth:** JWT + Member
 
@@ -660,14 +705,14 @@ Record a direct payment from one member to another.
 }
 ```
 
-- `given_by` is optional. If omitted, it resolves to the `SplitBillMember` linked to the authenticated user within the specified `split_bill`.
-- `given_by` and `given_to` are `SplitBillMember` IDs.
+- `given_by` — optional. If omitted, resolves to the `SplitBillMember` linked to the authenticated user within the given `split_bill`.
+- `given_by`, `given_to` — `SplitBillMember` IDs.
 
 **Response `201`:** Created `MoneyGiven` object.
 
 ---
 
-### `GET /money-given/{id}/`
+### `GET /api/money-given/{id}/`
 
 Retrieve a single money transfer record.
 
@@ -677,7 +722,7 @@ Retrieve a single money transfer record.
 
 ---
 
-### `DELETE /money-given/{id}/`
+### `DELETE /api/money-given/{id}/`
 
 Delete a money transfer record.
 
@@ -689,13 +734,13 @@ Delete a money transfer record.
 
 ## Balances
 
-Balances represent the net amount owed between pairs of `SplitBillMember`s. They are automatically computed and stored after every expense creation, update, deletion, or money-given change.
+`Balance` records represent the net amount owed between pairs of `SplitBillMember`s. They are automatically computed after every expense or money-given change.
 
-**Algorithm:** mutual debts are netted. If member A owes B 60 and B owes A 20, a single `Balance` of 40 (A → B) is stored. This eliminates circular or redundant balance pairs.
+**Algorithm:** mutual debts are netted. If member A owes B `60` and B owes A `20`, one `Balance` is stored: A → B: `40`. This eliminates redundant or circular pairs.
 
 ---
 
-### `GET /split-bill/{split_bill_id}/balances/`
+### `GET /api/split-bill/{split_bill_id}/balances/`
 
 List all active (unsettled) balances for a split bill.
 
@@ -716,9 +761,9 @@ List all active (unsettled) balances for a split bill.
 
 ---
 
-### `PATCH /split-bill/{split_bill_id}/balances/{balance_id}/settle/`
+### `PATCH /api/split-bill/{split_bill_id}/balances/{balance_id}/settle/`
 
-Mark a balance as settled (inactive).
+Mark a balance as settled by setting `active` to `false`.
 
 **Auth:** JWT + Member
 
@@ -736,13 +781,13 @@ Mark a balance as settled (inactive).
 }
 ```
 
-> Note: Settled balances may be reactivated if further expense changes trigger a recalculation.
+> Note: A settled balance will be reactivated if further expense changes trigger a recalculation and the net debt is still non-zero.
 
 ---
 
 ## Comments
 
-### `POST /comments/`
+### `POST /api/comments/`
 
 Post a comment on a split bill. The author is automatically set to the authenticated user.
 
@@ -777,9 +822,9 @@ Post a comment on a split bill. The author is automatically set to the authentic
 
 | URL | Description |
 |---|---|
-| `GET /schema/` | Download the raw OpenAPI 3.0 schema (YAML/JSON) |
-| `GET /schema/swagger-ui/` | Interactive Swagger UI |
-| `GET /schema/redoc/` | ReDoc documentation viewer |
+| `GET /api/schema/` | Raw OpenAPI 3.0 schema (YAML) |
+| `GET /api/schema/swagger-ui/` | Interactive Swagger UI |
+| `GET /api/schema/redoc/` | ReDoc documentation viewer |
 
 A pre-generated `schema.yml` is also committed to the repository root.
 
@@ -789,13 +834,13 @@ A pre-generated `schema.yml` is also committed to the repository root.
 
 | Status | Meaning |
 |---|---|
-| `200 OK` | Successful GET, PATCH |
+| `200 OK` | Successful GET or PATCH |
 | `201 Created` | Resource created successfully |
 | `204 No Content` | Successful DELETE |
 | `400 Bad Request` | Validation failed — field-level errors in response body |
 | `401 Unauthorized` | Missing, invalid, or expired JWT |
-| `403 Forbidden` | Authenticated but not a member/owner of the resource |
-| `404 Not Found` | Resource does not exist or user has no access |
+| `403 Forbidden` | Authenticated but not a member or owner of the resource |
+| `404 Not Found` | Resource does not exist or the user has no access |
 | `500 Internal Server Error` | Unhandled server-side exception |
 
 **Validation error example:**
@@ -817,7 +862,7 @@ A pre-generated `schema.yml` is also committed to the repository root.
 
 ## Permissions Reference
 
-| Permission | Condition |
+| Label | Condition |
 |---|---|
 | Public | No authentication required |
 | JWT | Valid `Authorization: Bearer <token>` header |
@@ -828,28 +873,30 @@ A pre-generated `schema.yml` is also committed to the repository root.
 
 ## Typical Flows
 
-### Create a bill and split an expense
+### Create a bill and record an expense
 
 ```
-1. POST /register/              → create user (inactive)
-2. GET  /activate/{uid}/{token}/ → activate account
-3. POST /token/                 → obtain JWT
-4. POST /split-bill/            → create bill (you are added as member automatically)
-5. POST /split-bill/{id}/add-member/ → add other members (get their SplitBillMember IDs)
-6. GET  /split-bill/{id}/       → inspect members to collect SplitBillMember IDs
-7. POST /expenses/equal         → create an equal expense using member IDs
-8. GET  /split-bill/{id}/balances/ → see who owes what
-9. POST /money-given/           → record when someone pays back
-10. PATCH /split-bill/{id}/balances/{bid}/settle/ → mark balance as settled
+1.  POST /api/register/                          → create user (inactive)
+2.  GET  /api/activate/{uidb64}/{token}/          → activate account
+3.  POST /api/token/                              → get JWT
+4.  POST /api/split-bill/                         → create bill (you are added automatically)
+5.  POST /api/split-bill/{id}/add-member/         → add other members; note their member IDs
+6.  GET  /api/split-bill/{id}/                    → inspect members array to confirm IDs
+7.  POST /api/expenses/equal/                     → create expense using SplitBillMember IDs
+8.  GET  /api/split-bill/{id}/balances/           → see who owes what
+9.  POST /api/money-given/                        → record a direct settlement payment
+10. PATCH /api/split-bill/{id}/balances/{bid}/settle/  → mark balance settled
 ```
 
 ### Invite an unregistered user
 
 ```
-1. POST /split-bill/{id}/add-member/  → provide alias + email
-   → PendingInvitation created, invite email sent
-2. Invited user: POST /register/      → register with that email
-   → PendingInvitation resolved automatically
-   → User linked to SplitBillMember, added to split_bill.members
-3. Invited user can now access the split bill immediately
+1. POST /api/split-bill/{id}/add-member/   → provide alias + email
+   → PendingInvitation is created; invite email is sent to that address
+
+2. Invited user: POST /api/register/       → registers with that email
+   → PendingInvitation is resolved automatically:
+      user linked to SplitBillMember, added to split_bill.members
+
+3. Invited user can now authenticate and access the split bill immediately
 ```
