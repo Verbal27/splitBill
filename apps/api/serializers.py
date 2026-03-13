@@ -577,7 +577,6 @@ class SplitBillSerializer(serializers.ModelSerializer):
         return MoneyGivenDetailSerializer(money_qs, many=True).data
 
     def get_balances(self, obj):
-        update_or_create_balances(obj)
         active_balances = obj.balances.filter(active=True)
         return [
             {

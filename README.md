@@ -138,8 +138,6 @@ The API will be available at `http://localhost:8000/apps/api/`.
 | `DEFAULT_FROM_EMAIL` | ✅ | From address for outbound emails |
 | `SECRET_KEY` | ✅ | Django secret key — **must be set in production** |
 
-> ⚠️ `SECRET_KEY` is currently hardcoded in `settings.py` with an insecure value. Override it via environment variable before any production deployment.
-
 ---
 
 ## Running with Docker
@@ -204,13 +202,3 @@ Authorization: Bearer <access_token>
 Token lifetimes: **access = 15 min**, **refresh = 1 day**.
 
 ---
-
-## Known Issues
-
-| Issue | Impact |
-|---|---|
-| `SECRET_KEY` hardcoded in `settings.py` | Security risk in production |
-| Mailgun errors during registration return HTTP 500, leaving the user with `is_active=False` | User exists but cannot log in |
-| Duplicate URL name `expense-detail` for two different routes | `reverse()` for GET/DELETE expense will resolve to the update URL |
-| `CORS_ALLOWED_ORIGIN_REGEXES` contains a plain string (not a regex) for the Railway domain | CORS may fail for production frontend requests |
-| `SplitBillSerializer.get_balances()` triggers a DB write on every GET | Unexpected side effects on read requests |
