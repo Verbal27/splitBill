@@ -15,5 +15,4 @@ wheels/
 compose.yaml
 .env
 .DS_Store
-API_REFERENCE.md
 DEVELOPMENT.md

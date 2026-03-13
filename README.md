@@ -1,251 +1,216 @@
-# SplitBill - Expense Sharing API
+# SplitBill API
 
-A Django REST Framework application for managing shared expenses among groups. Users can create split bills, add expenses with various splitting methods (equal, percentage, custom), track payments, and view balances.
+A REST API for splitting shared expenses among groups. Create a bill, add members, log expenses with equal, custom, or percentage-based splits, track direct payments, and get automatic balance calculations.
+
+**Production:** `https://splitbill-production.up.railway.app`
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Environment Variables](#environment-variables)
+- [Running with Docker](#running-with-docker)
+- [API Overview](#api-overview)
+- [Authentication](#authentication)
+- [Known Issues](#known-issues)
+
+---
 
 ## Features
 
-- **User Authentication**: JWT-based authentication with registration, login, and password reset
-- **Split Bill Management**: Create and manage expense-sharing sessions
-- **Flexible Expense Splitting**: 
-  - Equal split among participants
-  - Percentage-based distribution
-  - Custom amount allocation
-- **Member Management**: Add registered users or invite via email
-- **Balance Tracking**: Automatic calculation of who owes whom
-- **Payment Recording**: Track money transfers between members
-- **Comments**: Add notes and discussions to split bills
+- **User registration & activation** via email (Mailgun)
+- **JWT authentication** with access/refresh token flow
+- **Split bills** — group expenses with a flexible member model (registered users, email invitees, or alias-only offline members)
+- **Three split strategies** — equal share, custom amounts, percentage-based
+- **Automatic balance calculation** — net debts between pairs of members are computed and stored after every change
+- **Money given** — record direct payments between members to track debt settlement
+- **Comments** — members can annotate a split bill
+- **OpenAPI schema** — auto-generated via drf-spectacular, available as Swagger UI and ReDoc
+
+---
 
 ## Tech Stack
 
-- **Backend**: Django 5.2.4, Django REST Framework 3.16.0
-- **Database**: PostgreSQL (via psycopg 3.2.9)
-- **Authentication**: JWT (djangorestframework-simplejwt)
-- **Email**: Mailgun integration for invitations
-- **API Documentation**: drf-spectacular (OpenAPI/Swagger)
-- **Package Manager**: uv
+| Layer | Technology |
+|---|---|
+| Framework | Django 5.2.4 + Django REST Framework 3.16 |
+| Language | Python 3.13 |
+| Database | PostgreSQL (psycopg3 + dj-database-url) |
+| Authentication | JWT — djangorestframework-simplejwt |
+| Email | Mailgun HTTP API |
+| API Schema | drf-spectacular (OpenAPI 3.0) |
+| Deployment | Railway (Gunicorn via Procfile) |
+| Container | Docker (multi-stage, non-root user) |
+| Dependency management | uv |
+
+---
 
 ## Project Structure
 
 ```
 splitBill/
 ├── apps/
-│   └── api/              # Main API application
-│       ├── models.py     # Data models (SplitBill, Expense, Balance, etc.)
-│       ├── serializers.py # DRF serializers
-│       ├── views.py      # API endpoints
-│       ├── urls.py       # URL routing
-│       └── utils.py      # Helper functions (email, balance calculation)
-├── split_bill/           # Django project settings
-│   ├── settings.py       # Configuration
-│   └── urls.py           # Root URL configuration
-├── manage.py             # Django management script
-├── pyproject.toml        # Project dependencies (uv)
-└── .env                  # Environment variables
+│   ├── api/                  # Main app
+│   │   ├── models.py         # SplitBill, Expense, Balance, etc.
+│   │   ├── views.py          # All API views
+│   │   ├── serializers.py    # Request/response serializers
+│   │   ├── urls.py           # App URL routing
+│   │   ├── utils.py          # Balance engine, permissions, Mailgun helper
+│   │   └── tokens.py         # Account activation token generator
+│   └── sb_app/               # Minimal entry point app
+├── split_bill/
+│   ├── settings.py
+│   ├── urls.py               # Root URL conf (includes schema endpoints)
+│   └── wsgi.py
+├── tests/
+│   └── test_api.py           # Integration test script
+├── Dockerfile
+├── Procfile
+├── pyproject.toml
+├── schema.yml                # Pre-generated OpenAPI schema
+└── start.sh                  # Entrypoint: migrate + gunicorn
 ```
 
-## Installation
+---
 
-### Prerequisites
+## Getting Started
 
-- Python 3.13
-- PostgreSQL database
-- Mailgun account (for email invitations)
+**Requirements:** Python 3.13, PostgreSQL, a Mailgun account
 
-### Setup Steps
+### 1. Clone and install dependencies
 
-1. **Clone the repository**
-   ```bash
-   cd /Users/ionganea/Documents/Projects/PythonProjects/splitBill
-   ```
-
-2. **Create and activate virtual environment**
-   ```bash
-   python3.13 -m venv .venv
-   source .venv/bin/activate  # On macOS/Linux
-   # or
-   .venv\Scripts\activate     # On Windows
-   ```
-
-3. **Install dependencies**
-   ```bash
-   # Using uv (recommended)
-   uv sync
-   
-   # Or using pip
-   pip install -e .
-   ```
-
-4. **Configure environment variables**
-   
-   Create a `.env` file in the project root:
-   ```env
-   DATABASE_URL=postgresql://user:password@localhost:5432/splitbill
-   MAILGUN_DOMAIN=your-mailgun-domain
-   MAILGUN_API_KEY=your-mailgun-api-key
-   DEFAULT_FROM_EMAIL=noreply@yourdomain.com
-   ```
-
-5. **Run database migrations**
-   ```bash
-   python manage.py migrate
-   ```
-
-6. **Create a superuser (optional)**
-   ```bash
-   python manage.py createsuperuser
-   ```
-
-7. **Run the development server**
-   ```bash
-   python manage.py runserver
-   ```
-
-   The API will be available at `http://localhost:8000`
-
-## API Documentation
-
-Once the server is running, access the interactive API documentation:
-
-- **Swagger UI**: `http://localhost:8000/api/schema/swagger-ui/`
-- **ReDoc**: `http://localhost:8000/api/schema/redoc/`
-- **OpenAPI Schema**: `http://localhost:8000/api/schema/`
-
-## Key API Endpoints
-
-### Authentication
-- `POST /api/register/` - Register new user
-- `POST /api/login/` - Login (returns JWT tokens)
-- `POST /api/token/refresh/` - Refresh access token
-- `POST /api/reset-password/` - Request password reset
-- `POST /api/set-new-password/` - Set new password
-
-### Split Bills
-- `GET /api/split-bills/` - List all split bills
-- `POST /api/split-bills/` - Create new split bill
-- `GET /api/split-bills/{id}/` - Get split bill details
-- `PATCH /api/split-bills/{id}/` - Update split bill
-- `DELETE /api/split-bills/{id}/` - Delete split bill
-
-### Expenses
-- `POST /api/split-bills/{id}/expenses/equal/` - Add equal split expense
-- `POST /api/split-bills/{id}/expenses/custom/` - Add custom split expense
-- `POST /api/split-bills/{id}/expenses/percentage/` - Add percentage split expense
-- `PATCH /api/expenses/{id}/` - Update expense split type
-- `DELETE /api/expenses/{id}/` - Delete expense
-
-### Members
-- `POST /api/split-bills/{id}/add-member/` - Add member to split bill
-- `POST /api/split-bills/{id}/remove-member/` - Remove member
-- `PATCH /api/members/{id}/` - Update member details
-
-### Payments
-- `POST /api/money-given/` - Record payment between members
-- `GET /api/money-given/` - List all payments
-
-## Data Models
-
-### SplitBill
-Main container for shared expenses
-- `title`: Name of the split bill
-- `owner`: User who created it
-- `members`: Registered users participating
-- `currency`: Currency code (e.g., "USD")
-- `active`: Whether the bill is still active
-
-### Expense
-Individual expense entry
-- `title`: Description of expense
-- `amount`: Total amount
-- `split_type`: "equal", "percentage", or "custom"
-- `paid_by`: User who paid
-- `split_bill`: Associated split bill
-- `date`: Date of expense
-
-### ExpenseAssignment
-Links expenses to members with their share
-- `expense`: Related expense
-- `split_bill_member`: Member responsible for this share
-- `user`: Registered user (if member is registered)
-- `share_amount`: Amount this member owes
-
-### Balance
-Calculated balances between members
-- `from_member`: Member who owes
-- `to_member`: Member who is owed
-- `amount`: Amount owed
-- `active`: Whether balance is still outstanding
-
-## Development
-
-### Running Tests
 ```bash
-python manage.py test
+git clone <repo-url>
+cd splitBill
+
+# Install uv if you don't have it
+pip install uv
+
+# Install all dependencies
+uv sync
 ```
 
-### Code Quality
-The project uses:
-- **Ruff**: For linting and formatting
-- **Pre-commit hooks**: Configured in `.pre-commit-config.yaml`
+### 2. Configure environment variables
 
-Install pre-commit hooks:
+Copy the example below into a `.env` file (see [Environment Variables](#environment-variables)):
+
 ```bash
-pre-commit install
+DATABASE_URL=postgresql://user:password@localhost:5432/splitbill
+MAILGUN_DOMAIN=mg.yourdomain.com
+MAILGUN_API_KEY=key-xxxxxxxxxxxxxxxx
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+SECRET_KEY=your-django-secret-key
 ```
 
-### Database Management
+### 3. Apply migrations
 
-**Create migrations after model changes:**
-```bash
-python manage.py makemigrations
-```
-
-**Apply migrations:**
 ```bash
 python manage.py migrate
 ```
 
-**View migration status:**
+### 4. Create a superuser (optional)
+
 ```bash
-python manage.py showmigrations
+python manage.py createsuperuser
 ```
 
-## Deployment
+### 5. Run the development server
 
-The application is configured for deployment on Railway with:
-- Docker support (see `Dockerfile` and `compose.yaml`)
-- Gunicorn WSGI server
-- PostgreSQL database
-- Environment-based configuration
+```bash
+python manage.py runserver
+```
 
-Production URL: `https://django.splitbills.org`
+The API will be available at `http://localhost:8000/apps/api/`.
 
-## IDE Configuration
+---
 
-### VS Code
-1. Open Command Palette (`Cmd+Shift+P`)
-2. Select "Python: Select Interpreter"
-3. Choose `.venv/bin/python`
+## Environment Variables
 
-### PyCharm
-1. Go to Preferences → Project → Python Interpreter
-2. Add Interpreter → Existing
-3. Select `/path/to/splitBill/.venv/bin/python`
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | ✅ | PostgreSQL connection string |
+| `MAILGUN_DOMAIN` | ✅ | Your Mailgun sending domain |
+| `MAILGUN_API_KEY` | ✅ | Mailgun private API key |
+| `DEFAULT_FROM_EMAIL` | ✅ | From address for outbound emails |
+| `SECRET_KEY` | ✅ | Django secret key — **must be set in production** |
 
-## Troubleshooting
+> ⚠️ `SECRET_KEY` is currently hardcoded in `settings.py` with an insecure value. Override it via environment variable before any production deployment.
 
-### Import errors for Django modules
-Ensure your IDE is using the correct Python interpreter from `.venv`. Django is installed in the virtual environment, not globally.
+---
 
-### Database connection issues
-Verify your `DATABASE_URL` in `.env` is correct and PostgreSQL is running.
+## Running with Docker
 
-### Email not sending
-Check your Mailgun credentials in `.env` and ensure the domain is verified.
+```bash
+# Build
+docker build -t splitbill .
 
-## License
+# Run
+docker run \
+  -e DATABASE_URL=postgresql://user:pass@host/db \
+  -e MAILGUN_DOMAIN=mg.yourdomain.com \
+  -e MAILGUN_API_KEY=key-xxx \
+  -e DEFAULT_FROM_EMAIL=noreply@yourdomain.com \
+  -p 8000:8000 \
+  splitbill
+```
 
-[Add your license information here]
+The container runs as a non-root user, auto-runs `python manage.py migrate` on startup, then starts Gunicorn on port 8000.
 
-## Contributors
+---
 
-[Add contributor information here]
+## API Overview
+
+All endpoints are prefixed with `/apps/api/`. Full details in [API_REFERENCE.md](./API_REFERENCE.md).
+
+| Group | Endpoints |
+|---|---|
+| Auth | Register, activate, login (token), refresh, password reset |
+| Users | Get profile, update profile |
+| Split Bills | Create, list, retrieve, update, delete |
+| Members | Add, remove, update alias/email |
+| Expenses | Create (equal / custom / percentage), list, detail, update, delete |
+| Money Given | Record payment, list, detail, delete |
+| Balances | List active balances, settle a balance |
+| Comments | Post a comment |
+
+### Interactive docs
+
+- Swagger UI: `/apps/api/schema/swagger-ui/`
+- ReDoc: `/apps/api/schema/redoc/`
+- Raw OpenAPI schema: `/apps/api/schema/`
+
+---
+
+## Authentication
+
+The API uses JWT. Obtain tokens via `POST /apps/api/token/`:
+
+```bash
+curl -X POST https://splitbill-production.up.railway.app/apps/api/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "mypassword"}'
+```
+
+Pass the access token in the `Authorization` header for all protected requests:
+
+```
+Authorization: Bearer <access_token>
+```
+
+Token lifetimes: **access = 15 min**, **refresh = 1 day**.
+
+---
+
+## Known Issues
+
+| Issue | Impact |
+|---|---|
+| `SECRET_KEY` hardcoded in `settings.py` | Security risk in production |
+| Mailgun errors during registration return HTTP 500, leaving the user with `is_active=False` | User exists but cannot log in |
+| Duplicate URL name `expense-detail` for two different routes | `reverse()` for GET/DELETE expense will resolve to the update URL |
+| `CORS_ALLOWED_ORIGIN_REGEXES` contains a plain string (not a regex) for the Railway domain | CORS may fail for production frontend requests |
+| `SplitBillSerializer.get_balances()` triggers a DB write on every GET | Unexpected side effects on read requests |
