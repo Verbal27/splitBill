@@ -14,3 +14,6 @@ wheels/
 .pg_service.conf
 compose.yaml
 .env
+.DS_Store
+API_REFERENCE.md
+DEVELOPMENT.md

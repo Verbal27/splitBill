@@ -1,8 +1,6 @@
-import os
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
-import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -13,7 +11,6 @@ ALLOWED_HOSTS = [
     "0.0.0.0",
     "localhost",
     "127.0.0.1",
-    "splitbill-production.up.railway.app",
 ]
 
 INSTALLED_APPS = [
@@ -45,7 +42,6 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https?://localhost(:[0-9]+)?$",
     r"^https?://127\.0\.0\.1(:[0-9]+)?$",
-    "splitbill-production.up.railway.app",
 ]
 
 # CORS_ALLOW_CREDENTIALS = True
@@ -75,7 +71,8 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "SERVERS": [
         {
-            "url": "https://splitbill-production.up.railway.app",
+            # "url": "https://splitbill-production.up.railway.app",
+            "url": "https://127.0.0.1:8001",
             # "url": "http://localhost:8000",
             "description": "Production server",
         },
@@ -114,13 +111,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "split_bill.wsgi.application"
 
-DATABASES = {"default": dj_database_url.config(default=os.environ.get("DATABASE_URL"))}
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.postgresql",
-#         "OPTIONS": {"service": "my_db", "passfile": ".pgpass"},
-#     }
-# }
+# DATABASES = {"default": dj_database_url.config(default=os.environ.get("DATABASE_URL"))}
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "OPTIONS": {"service": "my_db", "passfile": ".pgpass"},
+    }
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {

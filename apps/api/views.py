@@ -112,7 +112,7 @@ class UserRegister(generics.CreateAPIView):
 
 @extend_schema(tags=["user-activation"])
 class UserActivation(APIView):
-    def get(self, request, uidb64, token):
+    def get(self, uidb64, token):
         try:
             uid = force_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(pk=uid)
@@ -158,7 +158,7 @@ class ResetPassword(generics.GenericAPIView):
     serializer_class = ResetPasswordSerializer
     permission_classes = [permissions.AllowAny]
 
-    @extend_schema(tags=["reset_password"])
+    @extend_schema(tags=["reset-password"])
     def post(self, request):
         try:
             serializer = self.serializer_class(data=request.data)
@@ -199,8 +199,8 @@ class ResetPassword(generics.GenericAPIView):
 
 @extend_schema(tags=["users"])
 class PasswordResetConfirmView(generics.GenericAPIView):
-    @extend_schema(tags=["reset_password"])
-    def get(self, request, uidb64, token):
+    @extend_schema(tags=["reset-password"])
+    def get(self, uidb64, token):
         try:
             uid = urlsafe_base64_decode(uidb64).decode()
             user = User.objects.get(pk=uid)
@@ -222,7 +222,7 @@ class PasswordResetConfirmView(generics.GenericAPIView):
 class PasswordResetCompleteView(generics.GenericAPIView):
     serializer_class = SetNewPasswordSerializer
 
-    @extend_schema(tags=["reset_password"])
+    @extend_schema(tags=["reset-password"])
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -348,7 +348,7 @@ class ExpenseUpdateView(APIView):
         return Response({"detail": "Expense updated successfully."}, status=200)
 
 
-@extend_schema(tags=["transactions/money_given"])
+@extend_schema(tags=["transactions/money-given"])
 class MoneyGivenCreateView(generics.ListCreateAPIView):
     serializer_class = MoneyGivenSerializer
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]
@@ -364,7 +364,7 @@ class MoneyGivenCreateView(generics.ListCreateAPIView):
         )
 
 
-@extend_schema(tags=["transactions/money_given"])
+@extend_schema(tags=["transactions/money-given"])
 class MoneyGivenDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = MoneyGivenSerializer
     permission_classes = [permissions.IsAuthenticated, IsSplitBillMember]

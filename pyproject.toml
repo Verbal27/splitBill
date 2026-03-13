@@ -26,3 +26,5 @@ select = ["F"]
 ignore = ["F841"]
 [tool.pyright]
 typeCheckingMode = "off"
+[tool.ruff]
+ignore = ["F403"]
