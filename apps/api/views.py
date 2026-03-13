@@ -78,41 +78,47 @@ class UserRegister(generics.CreateAPIView):
         return user
 
     def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        user = serializer.instance
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = account_activation_token.make_token(user)
+        domain = get_current_site(request).domain
+        link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
+        activate_url = f"http://{domain}{link}"
+
+        email_sent = True
         try:
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
+            send_mailgun_email(
+                "Activate your SplitBill account",
+                f"Hi {user.username},\n\nActivate here:\n{activate_url}",
+                user.email,
+            )
+        except Exception as e:
+            email_sent = False
+            print(f"[EMAIL ERROR] {e}")
 
-            self.perform_create(serializer)
-            user = serializer.instance
-
-            uid = urlsafe_base64_encode(force_bytes(user.pk))
-            token = account_activation_token.make_token(user)
-            domain = get_current_site(request).domain
-            link = reverse("activate-user", kwargs={"uidb64": uid, "token": token})
-            activate_url = f"http://{domain}{link}"
-
-            subject = "Activate your SplitBill account"
-            message = f"Hi {user.username},\n\nClick here to activate your account:\n{activate_url}"
-            send_mailgun_email(subject, message, user.email)
-
+        if email_sent:
             return Response(
                 {"detail": "Check your email to activate your account."},
                 status=status.HTTP_201_CREATED,
             )
-
-        except Exception as e:
-            import traceback
-
-            print("[Registration Error]", traceback.format_exc())
+        else:
             return Response(
-                {"detail": f"Internal server error during registration.{e}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {
+                    "detail": "Account created but activation email could not be sent. "
+                    "Contact support to manually activate your account.",
+                    "activation_url": activate_url,
+                },
+                status=status.HTTP_201_CREATED,
             )
 
 
 @extend_schema(tags=["user-activation"])
 class UserActivation(APIView):
-    def get(self, uidb64, token):
+    def get(self, request, uidb64, token):
         try:
             uid = force_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(pk=uid)
@@ -200,7 +206,7 @@ class ResetPassword(generics.GenericAPIView):
 @extend_schema(tags=["users"])
 class PasswordResetConfirmView(generics.GenericAPIView):
     @extend_schema(tags=["reset-password"])
-    def get(self, uidb64, token):
+    def get(self, request, uidb64, token):
         try:
             uid = urlsafe_base64_decode(uidb64).decode()
             user = User.objects.get(pk=uid)

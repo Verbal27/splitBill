@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -13,6 +14,10 @@ ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
 ]
+
+PRODUCTION_HOST = os.environ.get("ALLOWED_HOST")
+if PRODUCTION_HOST:
+    ALLOWED_HOSTS.append(PRODUCTION_HOST)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -112,13 +117,17 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "split_bill.wsgi.application"
 
-# DATABASES = {"default": dj_database_url.config(default=os.environ.get("DATABASE_URL"))}
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "OPTIONS": {"service": "my_db", "passfile": ".pgpass"},
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    DATABASES = {"default": dj_database_url.config(default=DATABASE_URL)}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "OPTIONS": {"service": "my_db", "passfile": ".pgpass"},
+        }
     }
-}
 
 AUTH_PASSWORD_VALIDATORS = [
     {
